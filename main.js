@@ -1,0 +1,575 @@
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const https = require('https');
+const { execSync } = require('child_process');
+
+// ===== Auto-updater =====
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+autoUpdater.on('update-available', (info) => {
+  if (mainWindow) mainWindow.webContents.send('update-available', info.version);
+});
+autoUpdater.on('update-downloaded', () => {
+  if (mainWindow) mainWindow.webContents.send('update-downloaded');
+});
+autoUpdater.on('error', (err) => {
+  console.error('Auto-updater error:', err.message);
+});
+
+function netlifyValidate(licenseKey, email) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify({ key: licenseKey, email });
+    const req = https.request({
+      hostname: 'keydeckapp.com',
+      port: 443,
+      path: '/.netlify/functions/validate-key',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+    }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); }
+        catch { resolve({ valid: false }); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timed out')); });
+    req.write(data);
+    req.end();
+  });
+}
+
+let store;
+let mainWindow;
+let flushingForQuit = false;
+
+async function initStore() {
+  const { default: Store } = await import('electron-store');
+  store = new Store();
+
+  // One-time migration: copy data from the old "Game Launcher" userData directory
+  const newPath = path.join(app.getPath('userData'), 'config.json');
+  const oldPath = path.join(app.getPath('appData'), 'Game Launcher', 'config.json');
+  if (!fs.existsSync(newPath) && fs.existsSync(oldPath)) {
+    try {
+      fs.copyFileSync(oldPath, newPath);
+      store.store = JSON.parse(fs.readFileSync(newPath, 'utf8'));
+    } catch (e) {
+      console.error('Data migration failed:', e.message);
+    }
+  }
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    frame: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    backgroundColor: '#1a1a2e',
+    show: false
+  });
+
+  mainWindow.loadFile('renderer/index.html');
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    startProcessWatcher();
+    if (app.isPackaged) {
+      setTimeout(() => autoUpdater.checkForUpdates(), 3000);
+    }
+  });
+
+  mainWindow.on('close', (event) => {
+    if (!flushingForQuit) {
+      event.preventDefault();
+      flushingForQuit = true;
+      mainWindow.webContents.send('app-before-quit');
+      setTimeout(() => mainWindow.close(), 1500);
+    }
+  });
+}
+
+ipcMain.on('renderer-quit-ready', () => {
+  mainWindow.close();
+});
+
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+
+app.whenReady().then(async () => {
+  await initStore();
+  createWindow();
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// Window controls
+ipcMain.on('window-minimize', () => mainWindow.minimize());
+ipcMain.on('window-maximize', () => {
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.on('window-close', () => mainWindow.close());
+
+// Pick folder
+ipcMain.handle('pick-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+// Open folder in Explorer
+ipcMain.handle('open-folder', (event, folderPath) => shell.openPath(folderPath));
+
+// Scan folder — returns shortcuts immediately; icons fetched separately
+ipcMain.handle('scan-folder', async (event, folderPath) => {
+  if (!folderPath || !fs.existsSync(folderPath)) return [];
+  try {
+    return await scanForShortcuts(folderPath);
+  } catch (e) {
+    console.error('Scan error:', e);
+    return [];
+  }
+});
+
+// Batch icon extraction — ONE PowerShell process for all paths
+ipcMain.handle('get-icons-batch', async (event, iconPaths) => {
+  if (!iconPaths || iconPaths.length === 0) return {};
+
+  const validPaths = iconPaths.filter(p => p && fs.existsSync(p));
+  if (validPaths.length === 0) return {};
+
+  const tmpId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const pathsFile = path.join(os.tmpdir(), `gl_paths_${tmpId}.txt`);
+  const scriptFile = path.join(os.tmpdir(), `gl_icons_${tmpId}.ps1`);
+
+  const script = `
+Add-Type -AssemblyName System.Drawing
+$paths = Get-Content -LiteralPath '${pathsFile.replace(/'/g, "''")}' -Encoding UTF8
+$out = [ordered]@{}
+foreach ($p in $paths) {
+  $p = $p.Trim()
+  if (-not $p -or -not (Test-Path -LiteralPath $p)) { $out[$p] = ''; continue }
+  try {
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($p)
+    $bmp = $icon.ToBitmap()
+    $ms = New-Object System.IO.MemoryStream
+    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $out[$p] = [Convert]::ToBase64String($ms.ToArray())
+    $ms.Dispose(); $bmp.Dispose()
+  } catch { $out[$p] = '' }
+}
+$out | ConvertTo-Json -Compress -Depth 1
+`.trim();
+
+  fs.writeFileSync(pathsFile, validPaths.join('\n'), 'utf8');
+  fs.writeFileSync(scriptFile, script, 'utf8');
+
+  let result = {};
+  try {
+    const output = execSync(
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`,
+      { timeout: 30000, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 }
+    ).trim();
+    if (output) {
+      const raw = JSON.parse(output);
+      for (const [p, b64] of Object.entries(raw)) {
+        if (b64) result[p] = `data:image/png;base64,${b64}`;
+      }
+    }
+  } catch (e) {
+    console.error('Batch icon error:', e.message);
+  } finally {
+    try { fs.unlinkSync(pathsFile); } catch (_) {}
+    try { fs.unlinkSync(scriptFile); } catch (_) {}
+  }
+  return result;
+});
+
+// Pick an image file and return as base64 data URL
+ipcMain.handle('pick-image', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['jpg','jpeg','png','gif','webp','bmp','ico'] }]
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  try {
+    const filePath = result.filePaths[0];
+    const data = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).slice(1).toLowerCase();
+    const mimes = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', ico:'image/x-icon' };
+    return `data:${mimes[ext] || 'image/png'};base64,${data.toString('base64')}`;
+  } catch (e) { return null; }
+});
+
+// Launch a shortcut — handle steam:// protocol and regular paths
+ipcMain.handle('launch-shortcut', (event, shortcutPath) => {
+  if (shortcutPath.startsWith('steam://')) shell.openExternal(shortcutPath);
+  else shell.openPath(shortcutPath);
+  return true;
+});
+
+// ===== Steam Integration =====
+
+// Fetch owned games from Steam Web API
+ipcMain.handle('steam-sync', async (event, { apiKey, steamId }) => {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${encodeURIComponent(apiKey)}&steamid=${encodeURIComponent(steamId)}&include_appinfo=1&include_played_free_games=1&format=json`;
+    const req = https.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data).response || {}); }
+        catch { reject(new Error('Invalid response from Steam API')); }
+      });
+    });
+    req.on('error', e => reject(e));
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timed out')); });
+  });
+});
+
+// Scan steamapps folders to find installed app IDs
+ipcMain.handle('get-steam-installed', async () => {
+  const installed = new Set();
+  let steamPath = null;
+
+  try {
+    const reg = execSync('reg query "HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam" /v InstallPath', { encoding: 'utf8', timeout: 5000 });
+    const m = reg.match(/InstallPath\s+REG_SZ\s+(.+)/);
+    if (m) steamPath = m[1].trim();
+  } catch {}
+
+  if (!steamPath) {
+    for (const p of ['C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam']) {
+      if (fs.existsSync(p)) { steamPath = p; break; }
+    }
+  }
+  if (!steamPath) return [];
+
+  const libraryPaths = [steamPath];
+  try {
+    const vdfPath = path.join(steamPath, 'steamapps', 'libraryfolders.vdf');
+    if (fs.existsSync(vdfPath)) {
+      const vdf = fs.readFileSync(vdfPath, 'utf8');
+      // New format: "path" "D:\\SteamLibrary"
+      for (const m of vdf.matchAll(/"path"\s+"([^"]+)"/gi)) {
+        const p = m[1].replace(/\\\\/g, '\\');
+        if (!libraryPaths.includes(p)) libraryPaths.push(p);
+      }
+      // Old format: "1" "D:\\SteamLibrary"
+      for (const m of vdf.matchAll(/"(\d+)"\s+"([A-Za-z]:[^"]+)"/g)) {
+        const p = m[2].replace(/\\\\/g, '\\');
+        if (!libraryPaths.includes(p)) libraryPaths.push(p);
+      }
+    }
+  } catch {}
+
+  for (const libPath of libraryPaths) {
+    const dir = path.join(libPath, 'steamapps');
+    try {
+      for (const file of fs.readdirSync(dir)) {
+        if (file.startsWith('appmanifest_') && file.endsWith('.acf')) {
+          const id = parseInt(file.slice(12, -4));
+          if (!isNaN(id)) installed.add(id);
+        }
+      }
+    } catch {}
+  }
+
+  return [...installed];
+});
+
+// ===== Process Watcher =====
+
+let gameExeMap = {}; // exeNameLower → scId[]
+
+ipcMain.handle('register-game-exes', (event, map) => { gameExeMap = map; });
+
+function startProcessWatcher() {
+  setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (Object.keys(gameExeMap).length === 0) return;
+    try {
+      const output = execSync('tasklist /FO CSV /NH', { timeout: 5000, encoding: 'utf8', windowsHide: true });
+      const runningExes = output.trim().split('\n').map(line => {
+        const end = line.indexOf('"', 1);
+        return end > 1 ? line.slice(1, end).toLowerCase() : null;
+      }).filter(Boolean);
+      mainWindow.webContents.send('process-snapshot', runningExes);
+    } catch {}
+  }, 8000);
+}
+
+// Store operations
+ipcMain.handle('store-get', (event, key) => store.get(key));
+ipcMain.handle('store-set', (event, key, value) => { store.set(key, value); });
+ipcMain.handle('store-delete', (event, key) => { store.delete(key); });
+
+// License
+ipcMain.handle('get-machine-id', async () => {
+  let machineId = store.get('machineId');
+  if (!machineId) {
+    const { randomUUID } = require('crypto');
+    machineId = randomUUID();
+    store.set('machineId', machineId);
+  }
+  return machineId;
+});
+
+ipcMain.handle('validate-license', async (event, { key, email }) => {
+  try {
+    return await netlifyValidate(key, email);
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+});
+
+ipcMain.handle('activate-license', async (event, { licenseKey, email }) => {
+  try {
+    const result = await netlifyValidate(licenseKey, email);
+    return { activated: result.valid, error: result.error };
+  } catch (e) {
+    return { activated: false, error: e.message };
+  }
+});
+
+// System stats
+ipcMain.handle('get-system-stats', () => {
+  const ramTotal = os.totalmem();
+  const ramUsed  = ramTotal - os.freemem();
+  const cpus     = os.cpus();
+  const cpuName  = cpus[0]?.model?.replace(/\s+/g, ' ').trim() || '';
+  const cpuCores = cpus.length;
+
+  let cpuPct = 0;
+  try {
+    const out = execSync('wmic cpu get loadpercentage /value', { timeout: 3000, encoding: 'utf8', windowsHide: true });
+    const m = out.match(/LoadPercentage=(\d+)/);
+    if (m) cpuPct = parseInt(m[1]);
+  } catch {}
+
+  // CPU temperature via WMI thermal zones (tenths of Kelvin → Celsius)
+  let cpuTemp = null;
+  try {
+    const out = execSync(
+      'wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value',
+      { timeout: 3000, encoding: 'utf8', windowsHide: true }
+    );
+    const matches = [...out.matchAll(/CurrentTemperature=(\d+)/g)];
+    if (matches.length > 0) {
+      const valid = matches
+        .map(m => Math.round(parseInt(m[1]) / 10 - 273.15))
+        .filter(t => t > 0 && t < 120);
+      if (valid.length > 0) cpuTemp = Math.max(...valid);
+    }
+  } catch {}
+
+  let gpuName = '', gpuUtil = null, gpuVram = null, gpuVramUsed = null, gpuTemp = null;
+
+  // NVIDIA path — nvidia-smi gives utilization + VRAM + temperature
+  try {
+    const out = execSync(
+      'nvidia-smi --query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu --format=csv,noheader,nounits',
+      { timeout: 3000, encoding: 'utf8', windowsHide: true }
+    );
+    const [name, util, vramMb, usedMb, temp] = out.trim().split(',').map(s => s.trim());
+    gpuName     = name;
+    gpuUtil     = parseInt(util)   || 0;
+    gpuVram     = parseInt(vramMb) * 1024 * 1024;
+    gpuVramUsed = parseInt(usedMb) * 1024 * 1024;
+    const t = parseInt(temp);
+    if (!isNaN(t) && t > 0) gpuTemp = t;
+  } catch {}
+
+  // AMD / Intel fallback — CIM + GPU Engine counter + thermal counter
+  if (!gpuName) {
+    const scriptFile = path.join(os.tmpdir(), `gl_gpu_${Date.now()}.ps1`);
+    const script = `
+$vc   = Get-CimInstance -ClassName Win32_VideoController | Sort-Object AdapterRAM -Descending | Select-Object -First 1
+$vram = $vc.AdapterRAM
+$util = -1
+$temp = -1
+try {
+  $s    = (Get-Counter '\\GPU Engine(*engtype_3D)\\Utilization Percentage' -ErrorAction Stop).CounterSamples | Where-Object { $_.CookedValue -ge 0 }
+  $max  = ($s | Measure-Object -Property CookedValue -Maximum).Maximum
+  if ($max -ne $null) { $util = [Math]::Round($max) }
+} catch {}
+try {
+  $ts   = (Get-Counter '\\GPU Thermal(*)\\Temperature' -ErrorAction Stop).CounterSamples
+  $tmax = ($ts | Measure-Object -Property CookedValue -Maximum).Maximum
+  if ($tmax -ne $null) { $temp = [Math]::Round($tmax) }
+} catch {}
+Write-Output ($vc.Name + '|' + $vram + '|' + $util + '|' + $temp)
+`.trim();
+    try {
+      fs.writeFileSync(scriptFile, script, 'utf8');
+      const out = execSync(
+        `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`,
+        { timeout: 5000, encoding: 'utf8', windowsHide: true }
+      );
+      const parts = out.trim().split('|');
+      if (parts.length === 4) {
+        gpuName = (parts[0] || '').trim();
+        const v = parseInt(parts[1]);
+        if (v > 0) gpuVram = v;
+        const u = parseInt(parts[2]);
+        if (u >= 0) gpuUtil = u;
+        const t = parseInt(parts[3]);
+        if (t > 0 && t < 120) gpuTemp = t;
+      }
+    } catch {} finally {
+      try { fs.unlinkSync(scriptFile); } catch {}
+    }
+  }
+
+  return { cpuPct, cpuName, cpuCores, cpuTemp, ramTotal, ramUsed, gpuName, gpuUtil, gpuVram, gpuVramUsed, gpuTemp };
+});
+
+// ===== Scanning =====
+
+async function scanForShortcuts(folderPath) {
+  let entries;
+  try {
+    entries = fs.readdirSync(folderPath, { withFileTypes: true });
+  } catch (e) {
+    return [];
+  }
+
+  const lnkFiles = [];
+  const urlFiles = [];
+
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    const lower = e.name.toLowerCase();
+    const full  = path.join(folderPath, e.name);
+    if (lower.endsWith('.lnk'))      lnkFiles.push(full);
+    else if (lower.endsWith('.url')) urlFiles.push(full);
+  }
+
+  // Batch-resolve all .lnk files in ONE PowerShell call
+  const lnkResolved = lnkFiles.length > 0 ? await batchResolveLnk(lnkFiles) : {};
+
+  const results = [];
+
+  for (const lnkPath of lnkFiles) {
+    const info       = lnkResolved[lnkPath] || {};
+    const name       = path.basename(lnkPath, '.lnk');
+    const targetPath = info.target || lnkPath;
+
+    let iconPath = null;
+    if (info.icon && !info.icon.startsWith(',')) {
+      const candidate = expandEnvVars(info.icon.replace(/,[^,]*$/, '').trim());
+      if (candidate && fs.existsSync(candidate)) iconPath = candidate;
+    }
+    if (!iconPath && targetPath && targetPath !== lnkPath && fs.existsSync(targetPath)) {
+      iconPath = targetPath;
+    }
+
+    results.push({
+      id: Buffer.from(lnkPath).toString('base64'),
+      name,
+      path: lnkPath,
+      targetPath,
+      iconPath: iconPath || targetPath || lnkPath,
+      isUrl: false,
+      isFile: false
+    });
+  }
+
+  for (const urlPath of urlFiles) {
+    results.push(resolveUrlShortcut(urlPath));
+  }
+
+  return results;
+}
+
+async function batchResolveLnk(lnkPaths) {
+  const tmpId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const pathsFile = path.join(os.tmpdir(), `gl_lnk_paths_${tmpId}.txt`);
+  const scriptFile = path.join(os.tmpdir(), `gl_lnk_${tmpId}.ps1`);
+
+  const script = `
+$shell = New-Object -ComObject WScript.Shell
+$paths = Get-Content -LiteralPath '${pathsFile.replace(/'/g, "''")}' -Encoding UTF8
+$out = [ordered]@{}
+foreach ($lnk in $paths) {
+  $lnk = $lnk.Trim()
+  if (-not $lnk) { continue }
+  try {
+    $s = $shell.CreateShortcut($lnk)
+    $out[$lnk] = @{ target = $s.TargetPath; icon = $s.IconLocation }
+  } catch {
+    $out[$lnk] = @{ target = ''; icon = '' }
+  }
+}
+$out | ConvertTo-Json -Compress -Depth 3
+`.trim();
+
+  fs.writeFileSync(pathsFile, lnkPaths.join('\n'), 'utf8');
+  fs.writeFileSync(scriptFile, script, 'utf8');
+
+  let result = {};
+  try {
+    const output = execSync(
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`,
+      { timeout: 15000, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+    ).trim();
+    if (output) {
+      const raw = JSON.parse(output);
+      // PS ConvertTo-Json wraps single items differently — normalise
+      for (const [k, v] of Object.entries(raw)) {
+        result[k] = { target: v?.target || '', icon: v?.icon || '' };
+      }
+    }
+  } catch (e) {
+    console.error('Batch lnk resolve error:', e.message);
+  } finally {
+    try { fs.unlinkSync(pathsFile); } catch (_) {}
+    try { fs.unlinkSync(scriptFile); } catch (_) {}
+  }
+  return result;
+}
+
+function resolveUrlShortcut(urlFilePath) {
+  const name = path.basename(urlFilePath, '.url');
+  let url = null;
+  let iconPath = null;
+
+  try {
+    const content = fs.readFileSync(urlFilePath, 'utf8');
+    const urlMatch = content.match(/^URL=(.+)$/mi);
+    if (urlMatch) url = urlMatch[1].trim();
+
+    const iconMatch = content.match(/^IconFile=(.+)$/mi);
+    if (iconMatch) {
+      const candidate = expandEnvVars(iconMatch[1].trim());
+      if (candidate && fs.existsSync(candidate)) iconPath = candidate;
+    }
+  } catch (e) { /* ignore */ }
+
+  return {
+    id: Buffer.from(urlFilePath).toString('base64'),
+    name,
+    path: urlFilePath,
+    targetPath: url || urlFilePath,
+    iconPath: iconPath || null,
+    isUrl: true,
+    url: url || null
+  };
+}
+
+function expandEnvVars(str) {
+  if (!str) return str;
+  return str.replace(/%([^%]+)%/g, (match, name) => process.env[name] || match);
+}

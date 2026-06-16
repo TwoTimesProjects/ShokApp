@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KeyDeck</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <!-- License Activation Overlay -->
+  <div id="license-overlay">
+    <div id="license-box">
+      <button id="license-close" title="Close" onclick="document.getElementById('license-overlay').classList.remove('visible')">&#10005;</button>
+      <div id="license-logo"><img src="../gamelauchercover.png" alt="KeyDeck" /></div>
+      <h2 id="license-heading">Activate Your License</h2>
+      <p id="license-subtext">Enter the email and license key from your purchase email.</p>
+      <label class="license-field-label" for="license-email-input">Email address</label>
+      <input type="email" id="license-email-input" placeholder="you@example.com" autocomplete="email" />
+      <label class="license-field-label" for="license-key-input">License key</label>
+      <input type="text" id="license-key-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+      <button id="license-activate-btn" class="btn-primary">Activate</button>
+      <div id="license-status"></div>
+      <a id="license-buy-link" href="https://keydeckapp.com" target="_blank">Don't have a license? Buy KeyDeck Pro</a>
+    </div>
+  </div>
+
+  <!-- Custom title bar -->
+  <div id="titlebar">
+    <div id="titlebar-drag">
+      <img id="titlebar-logo" src="../gamelauchercover.png" alt="" />
+      <span id="app-title">KeyDeck</span>
+    </div>
+    <div id="titlebar-controls">
+      <button id="btn-minimize" title="Minimize">&#8212;</button>
+      <button id="btn-maximize" title="Maximize">&#9633;</button>
+      <button id="btn-close" title="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <div id="update-banner" class="hidden">
+    <span id="update-message"></span>
+    <button id="update-install-btn" class="hidden">&#8635; Restart &amp; Update</button>
+    <button id="update-dismiss-btn" title="Dismiss">&#10005;</button>
+  </div>
+
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-folder-section">
+        <div id="folder-header">
+          <span id="folder-icon">&#128194;</span>
+          <span id="folder-name">No folder selected</span>
+        </div>
+        <div id="folder-actions">
+          <button class="sidebar-btn" id="btn-open-folder">&#128194; Open Folder</button>
+          <button class="sidebar-btn" id="btn-change-folder">&#128230; Change</button>
+          <button class="sidebar-btn" id="btn-rescan">&#8635; Rescan</button>
+        </div>
+      </div>
+
+      <nav id="sidebar-nav">
+        <div class="nav-section-label">Library</div>
+        <button class="nav-item active" data-view="all">
+          <span class="nav-icon">&#127918;</span> All
+        </button>
+        <button class="nav-item" data-view="recent">
+          <span class="nav-icon">&#128336;</span> Recently Played
+        </button>
+        <button class="nav-item" data-view="favorites">
+          <span class="nav-icon">&#11088;</span> Favorites
+        </button>
+        <button class="nav-item" data-view="most-played">
+          <span class="nav-icon">&#127942;</span> Most Played
+        </button>
+
+        <div class="nav-section-label" id="categories-label">
+          Categories
+          <button id="btn-add-category" title="Add category">+</button>
+        </div>
+        <div id="categories-list"></div>
+      </nav>
+
+      <div id="sidebar-bottom">
+        <button class="sidebar-btn" id="btn-theme" title="Customize colors">&#127912; Themes</button>
+        <button class="sidebar-btn" id="btn-settings" title="Link Steam">&#9881; Link Steam</button>
+        <button class="sidebar-btn" id="btn-stats" title="System Stats">&#128202; Stats</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+      <div id="topbar">
+        <div id="topbar-left">
+          <h2 id="view-title">All</h2>
+          <button id="btn-add-items-to-cat" class="hidden" title="Add shortcuts to this category">&#10133; Add Items</button>
+        </div>
+        <div id="topbar-right">
+          <button id="btn-show-hidden" class="hidden" title="Toggle hidden shortcuts">&#128065; Show Hidden</button>
+          <select id="sort-select" title="Sort order">
+            <option value="name-az">Name A&#8594;Z</option>
+            <option value="name-za">Name Z&#8594;A</option>
+            <option value="most-played">Most Played</option>
+            <option value="last-played">Last Played</option>
+          </select>
+          <div id="grid-size-wrap" title="Adjust card size">
+            <span class="grid-size-icon">&#9726;</span>
+            <input type="range" id="grid-size-slider" min="130" max="280" step="10" value="160" />
+            <span class="grid-size-icon">&#9632;</span>
+          </div>
+          <div id="search-wrapper">
+            <span id="search-icon">&#128269;</span>
+            <input type="text" id="search-input" placeholder="Search shortcuts..." />
+            <button id="search-clear" title="Clear">&#10005;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Most played strip (shown in all-view) -->
+      <div id="most-played-strip" class="hidden">
+        <div class="section-header">Most Played</div>
+        <div id="most-played-cards"></div>
+      </div>
+
+      <!-- Recently played strip (shown in all-view) -->
+      <div id="recent-strip" class="hidden">
+        <div class="section-header">Recently Played</div>
+        <div id="recent-cards"></div>
+      </div>
+
+      <!-- Grid + detail panel side by side -->
+      <div id="content-row">
+        <div id="grid-area">
+          <div id="empty-state">
+            <div id="empty-icon">&#128194;</div>
+            <p>No folder selected.<br/>Click <strong>Change</strong> in the sidebar to get started.</p>
+          </div>
+          <div id="shortcuts-grid"></div>
+        </div>
+
+        <!-- Detail panel (slides in from right) -->
+        <aside id="detail-panel">
+          <div id="detail-header">
+            <span id="detail-panel-title">Details</span>
+            <button id="detail-close" title="Close">&#10005;</button>
+          </div>
+          <div id="detail-cover-section">
+            <div id="detail-cover-wrap">
+              <img id="detail-cover-img" class="hidden" alt="cover art" />
+              <div id="detail-cover-fallback">&#127918;</div>
+            </div>
+            <div id="detail-cover-btns">
+              <button class="btn-secondary" id="btn-set-art">&#128444; Set Cover Art</button>
+              <button class="btn-secondary hidden" id="btn-remove-art">&#10005; Remove</button>
+            </div>
+          </div>
+          <h3 id="detail-name"></h3>
+          <div id="detail-rows">
+            <div class="detail-row">
+              <span class="detail-label">Target</span>
+              <span class="detail-value" id="detail-target"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Plays</span>
+              <span class="detail-value" id="detail-plays"></span>
+            </div>
+            <div class="detail-row hidden" id="detail-row-steam">
+              <span class="detail-label">Steam Playtime</span>
+              <span class="detail-value" id="detail-steam-time"></span>
+            </div>
+            <div class="detail-row hidden" id="detail-row-session">
+              <span class="detail-label">Tracked Time</span>
+              <span class="detail-value" id="detail-session-time"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">First played</span>
+              <span class="detail-value" id="detail-first-played"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Last played</span>
+              <span class="detail-value" id="detail-last-played"></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Categories</span>
+              <div class="detail-value" id="detail-cats"></div>
+            </div>
+          </div>
+          <div id="detail-notes-wrap">
+            <label class="detail-label" for="detail-notes">Notes</label>
+            <textarea id="detail-notes" placeholder="Add a personal note..."></textarea>
+          </div>
+          <div id="detail-footer">
+            <button id="detail-btn-hide" class="btn-secondary">&#128065; Hide</button>
+            <button id="detail-btn-launch" class="btn-primary">&#9654; Launch</button>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="hidden">
+    <!-- Add Category Modal -->
+    <div id="modal-category" class="modal hidden">
+      <h3>New Category</h3>
+      <input type="text" id="category-name-input" placeholder="Category name..." maxlength="32" />
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-cancel-category">Cancel</button>
+        <button class="btn-primary" id="btn-confirm-category">Create</button>
+      </div>
+    </div>
+
+    <!-- Add to Category Modal -->
+    <div id="modal-add-to-cat" class="modal hidden">
+      <h3>Add to Category</h3>
+      <p id="add-to-cat-name"></p>
+      <div id="add-to-cat-list"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-close-add-to-cat">Done</button>
+      </div>
+    </div>
+
+    <!-- Theme Picker Modal -->
+    <div id="modal-theme" class="modal hidden">
+      <h3>&#127912; Color Themes</h3>
+      <div id="theme-presets"></div>
+      <div class="theme-divider">Custom</div>
+      <div id="custom-theme-pickers">
+        <label>Background <input type="color" data-var="--bg-primary" /></label>
+        <label>Sidebar <input type="color" data-var="--bg-sidebar" /></label>
+        <label>Card <input type="color" data-var="--bg-card" /></label>
+        <label>Accent <input type="color" data-var="--accent" /></label>
+        <label>Text <input type="color" data-var="--text-primary" /></label>
+        <label>Text dim <input type="color" data-var="--text-dim" /></label>
+      </div>
+      <div id="save-theme-row">
+        <input type="text" id="save-theme-name" placeholder="Theme name..." maxlength="32" />
+        <button class="btn-secondary" id="btn-save-theme">&#43; Save Theme</button>
+      </div>
+      <div id="saved-themes-section" class="hidden">
+        <div class="theme-divider">Saved</div>
+        <div id="saved-themes-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-reset-theme">Reset</button>
+        <button class="btn-primary" id="btn-close-theme">Done</button>
+      </div>
+    </div>
+
+    <!-- Rename Category Modal -->
+    <div id="modal-rename-cat" class="modal hidden">
+      <h3>Rename Category</h3>
+      <input type="text" id="rename-cat-input" placeholder="Category name..." maxlength="32" />
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-cancel-rename-cat">Cancel</button>
+        <button class="btn-primary" id="btn-confirm-rename-cat">Rename</button>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="modal-settings" class="modal hidden">
+      <h3>&#9881; Settings</h3>
+      <div class="settings-group">
+        <div class="settings-group-title">
+          Steam Integration
+          <button id="btn-steam-help" class="help-btn" title="How Steam sync works">?</button>
+        </div>
+        <div id="steam-help-text" class="steam-help hidden">
+          <strong>Steam API Key</strong><br/>
+          Go to steamcommunity.com/dev/apikey, log in, and register a domain (anything works — even "localhost"). Your key is generated instantly.<br/><br/>
+          <strong>Steam ID</strong><br/>
+          Open Steam and go to your profile. The URL will show a long number like <em>76561198XXXXXXXXX</em> — that's your Steam ID. If your URL uses a custom name instead, go to steamidfinder.com, enter your profile URL, and it'll give you the numeric ID.<br/><br/>
+          <strong>How sync works</strong><br/>
+          New entries are only created for Steam games <strong>currently installed</strong> on this machine. Uninstalled games are not added. For games already in the launcher, Steam playtime and last-played data is updated regardless of install status.
+        </div>
+        <label class="settings-label">
+          Web API Key
+          <span class="settings-hint">steamcommunity.com/dev/apikey</span>
+        </label>
+        <input type="password" id="steam-api-key" class="settings-input" placeholder="Steam Web API key..." autocomplete="off" />
+        <label class="settings-label">
+          Steam ID (64-bit)
+          <span class="settings-hint">Find yours at steamid.io</span>
+        </label>
+        <input type="text" id="steam-id-val" class="settings-input" placeholder="76561198000000000" />
+        <div id="steam-sync-status" class="steam-status"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-steam-sync">&#8635; Sync Steam Library</button>
+        <button class="btn-primary" id="btn-close-settings">Done</button>
+      </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div id="modal-stats" class="modal hidden">
+      <h3>&#128202; System Stats</h3>
+      <div id="stats-gauges">
+
+        <!-- CPU -->
+        <div class="stat-card">
+          <div class="stat-gauge-wrap">
+            <svg class="stat-ring" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" class="stat-ring-bg"/>
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" stroke-linecap="round"
+                class="stat-ring-fill" id="stat-cpu-ring" transform="rotate(-90 50 50)"/>
+            </svg>
+            <div class="stat-center">
+              <span class="stat-pct" id="stat-cpu-pct">—</span>
+              <span class="stat-temp" id="stat-cpu-temp"></span>
+            </div>
+          </div>
+          <div class="stat-card-label">CPU</div>
+          <div class="stat-card-detail" id="stat-cpu-detail">—</div>
+        </div>
+
+        <!-- RAM -->
+        <div class="stat-card">
+          <div class="stat-gauge-wrap">
+            <svg class="stat-ring" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" class="stat-ring-bg"/>
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" stroke-linecap="round"
+                class="stat-ring-fill" id="stat-ram-ring" transform="rotate(-90 50 50)"/>
+            </svg>
+            <div class="stat-center">
+              <span class="stat-pct" id="stat-ram-pct">—</span>
+            </div>
+          </div>
+          <div class="stat-card-label">RAM</div>
+          <div class="stat-card-detail" id="stat-ram-detail">—</div>
+        </div>
+
+        <!-- GPU -->
+        <div class="stat-card">
+          <div class="stat-gauge-wrap">
+            <svg class="stat-ring" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" class="stat-ring-bg"/>
+              <circle cx="50" cy="50" r="38" fill="none" stroke-width="9" stroke-linecap="round"
+                class="stat-ring-fill" id="stat-gpu-ring" transform="rotate(-90 50 50)"/>
+            </svg>
+            <div class="stat-center">
+              <span class="stat-pct" id="stat-gpu-pct">—</span>
+              <span class="stat-temp" id="stat-gpu-temp"></span>
+            </div>
+          </div>
+          <div class="stat-card-label">GPU</div>
+          <div class="stat-card-detail" id="stat-gpu-detail">—</div>
+        </div>
+
+      </div>
+
+      <div id="stats-info">
+        <div class="stats-info-row">
+          <span class="stats-info-label">CPU</span>
+          <span class="stats-info-value" id="stat-cpu-name">—</span>
+        </div>
+        <div class="stats-info-row">
+          <span class="stats-info-label">GPU</span>
+          <span class="stats-info-value" id="stat-gpu-name">—</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-primary" id="btn-close-stats">Done</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Context menu for categories -->
+  <div id="context-menu" class="hidden">
+    <button id="ctx-rename">Rename</button>
+    <button id="ctx-add-items">Add Items</button>
+    <button id="ctx-delete">Delete</button>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

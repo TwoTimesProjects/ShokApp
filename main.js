@@ -156,14 +156,103 @@ ipcMain.handle('get-icons-batch', async (event, iconPaths) => {
 
   const script = `
 Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies System.Drawing @"
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+
+public class JumboIcon {
+    private const uint SHGFI_SYSICONINDEX = 0x4000;
+    private const int SHIL_JUMBO = 0x4;
+    private const int ILD_TRANSPARENT = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SHFILEINFO {
+        public IntPtr hIcon;
+        public int iIcon;
+        public uint dwAttributes;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szDisplayName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+        public string szTypeName;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
+
+    [DllImport("shell32.dll")]
+    private static extern int SHGetImageList(int iImageList, ref Guid riid, out IImageList ppv);
+
+    [ComImport]
+    [Guid("46EB5926-582E-4017-9FDF-E8998DAA0950")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IImageList {
+        [PreserveSig] int Add(IntPtr hbmImage, IntPtr hbmMask, ref int pi);
+        [PreserveSig] int ReplaceIcon(int i, IntPtr hicon, ref int pi);
+        [PreserveSig] int SetOverlayImage(int iImage, int iOverlay);
+        [PreserveSig] int Replace(int i, IntPtr hbmImage, IntPtr hbmMask);
+        [PreserveSig] int AddMasked(IntPtr hbmImage, int crMask, ref int pi);
+        [PreserveSig] int Draw(IntPtr pimldp);
+        [PreserveSig] int Remove(int i);
+        [PreserveSig] int GetIcon(int i, int flags, out IntPtr picon);
+    }
+
+    public static Bitmap Get(string path) {
+        SHFILEINFO shfi = new SHFILEINFO();
+        SHGetFileInfo(path, 0, ref shfi, (uint)Marshal.SizeOf(typeof(SHFILEINFO)), SHGFI_SYSICONINDEX);
+        Guid iid = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950");
+        IImageList iml;
+        SHGetImageList(SHIL_JUMBO, ref iid, out iml);
+        if (iml == null) return null;
+        IntPtr hIcon;
+        iml.GetIcon(shfi.iIcon, ILD_TRANSPARENT, out hIcon);
+        if (hIcon == IntPtr.Zero) return null;
+        using (Icon icon = Icon.FromHandle(hIcon)) {
+            Bitmap bmp = icon.ToBitmap();
+            return Trim(bmp);
+        }
+    }
+
+    private static Bitmap Trim(Bitmap source) {
+        int width = source.Width, height = source.Height;
+        BitmapData data = source.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int stride = data.Stride;
+        byte[] buffer = new byte[stride * height];
+        Marshal.Copy(data.Scan0, buffer, 0, buffer.Length);
+        source.UnlockBits(data);
+
+        int minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++) {
+            int rowOffset = y * stride;
+            for (int x = 0; x < width; x++) {
+                byte a = buffer[rowOffset + x * 4 + 3];
+                if (a > 10) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX < 0) return source;
+        Rectangle rect = new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+        return source.Clone(rect, source.PixelFormat);
+    }
+}
+"@
 $paths = Get-Content -LiteralPath '${pathsFile.replace(/'/g, "''")}' -Encoding UTF8
 $out = [ordered]@{}
 foreach ($p in $paths) {
   $p = $p.Trim()
   if (-not $p -or -not (Test-Path -LiteralPath $p)) { $out[$p] = ''; continue }
   try {
-    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($p)
-    $bmp = $icon.ToBitmap()
+    $bmp = $null
+    try { $bmp = [JumboIcon]::Get($p) } catch {}
+    if (-not $bmp) {
+      $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($p)
+      $bmp = $icon.ToBitmap()
+    }
     $ms = New-Object System.IO.MemoryStream
     $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
     $out[$p] = [Convert]::ToBase64String($ms.ToArray())

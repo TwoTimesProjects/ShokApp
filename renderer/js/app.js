@@ -213,11 +213,23 @@ function rgbToHex(rgb) {
 async function initLicense() {
   const storedKey   = localStorage.getItem('licenseKey');
   const storedEmail = localStorage.getItem('licenseEmail');
-  if (storedKey && storedEmail) {
+  if (!storedKey || !storedEmail) return;
+
+  // Trust the saved activation immediately so Pro stays unlocked across
+  // restarts even if the network is slow/offline — don't make the user
+  // wait on (or lose Pro to) a server round-trip just to reopen the app.
+  window.isPro = true;
+
+  try {
     const result = await window.api.validateLicense(storedKey, storedEmail);
-    if (result && result.valid) {
-      window.isPro = true;
+    // Only revoke on an explicit server rejection, not on a network/timeout error.
+    if (result && result.valid === false && !result.error) {
+      window.isPro = false;
+      localStorage.removeItem('licenseKey');
+      localStorage.removeItem('licenseEmail');
     }
+  } catch {
+    // Network error — keep trusting the cached activation.
   }
 }
 

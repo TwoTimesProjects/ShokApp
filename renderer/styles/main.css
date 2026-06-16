@@ -434,10 +434,15 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   position: relative;
+  aspect-ratio: 3 / 4;
   transition: border-color 0.15s, background 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: default;
+}
+.shortcut-card.has-cover {
+  aspect-ratio: auto;
 }
 .shortcut-card:hover {
   border-color: var(--accent);
@@ -446,8 +451,8 @@ body {
   box-shadow: 0 6px 20px rgba(0,0,0,0.35), 0 0 0 1px var(--accent-glow);
 }
 .card-icon-wrap {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -458,8 +463,9 @@ body {
   height: 100%;
   object-fit: contain;
   border-radius: 6px;
+  image-rendering: -webkit-optimize-contrast;
 }
-.card-icon-fallback { font-size: 44px; line-height: 1; }
+.card-icon-fallback { font-size: 54px; line-height: 1; }
 .card-name {
   font-size: 12px;
   font-weight: 600;
@@ -946,7 +952,7 @@ body {
 }
 .shortcut-card.has-cover .card-cover-img {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 3 / 4;
   object-fit: cover;
   display: block;
   border-radius: var(--radius) var(--radius) 0 0;

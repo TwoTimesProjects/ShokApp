@@ -1432,7 +1432,7 @@ async function pollStats() {
     const s = await window.api.getSystemStats();
     renderStats(s);
   } catch {}
-  if (statsPolling) setTimeout(pollStats, 2000);
+  if (statsPolling) setTimeout(pollStats, 1000);
 }
 
 function setRing(ringEl, pct) {

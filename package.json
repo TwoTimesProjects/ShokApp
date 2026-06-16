@@ -26,7 +26,10 @@
     "productName": "KeyDeck",
     "win": {
       "target": "nsis",
-      "icon": "GameLaucher.ico"
+      "icon": "GameLaucher.ico",
+      "certificateSubjectName": "REPLACE-WITH-YOUR-CERT-SUBJECT-NAME",
+      "signingHashAlgorithms": ["sha256"],
+      "rfc3161TimeStampServer": "http://time.certum.pl"
     },
     "nsis": {
       "oneClick": false,

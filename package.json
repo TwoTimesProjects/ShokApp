@@ -27,9 +27,7 @@
     "win": {
       "target": "nsis",
       "icon": "GameLaucher.ico",
-      "certificateSubjectName": "REPLACE-WITH-YOUR-CERT-SUBJECT-NAME",
-      "signingHashAlgorithms": ["sha256"],
-      "rfc3161TimeStampServer": "http://time.certum.pl"
+      "artifactName": "KeyDeck-Setup.exe"
     },
     "nsis": {
       "oneClick": false,

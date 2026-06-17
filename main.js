@@ -72,6 +72,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     frame: false,
+    icon: path.join(__dirname, 'GameLaucher.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

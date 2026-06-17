@@ -441,9 +441,6 @@ body {
   transition: border-color 0.15s, background 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: default;
 }
-.shortcut-card.has-cover {
-  aspect-ratio: auto;
-}
 .shortcut-card:hover {
   border-color: var(--accent);
   background: var(--bg-card-hover);
@@ -947,25 +944,59 @@ body {
 
 /* ===== Card: cover art mode ===== */
 .shortcut-card.has-cover {
-  padding: 0 0 10px;
+  padding: 0;
   overflow: hidden;
+  /* inherits aspect-ratio: 3/4 from base — all cards stay the same size */
 }
 .shortcut-card.has-cover .card-cover-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  aspect-ratio: 3 / 4;
+  height: 100%;
   object-fit: cover;
+  border-radius: var(--radius);
   display: block;
-  border-radius: var(--radius) var(--radius) 0 0;
-  margin-bottom: 8px;
+}
+/* gradient so the name is readable over any image */
+.shortcut-card.has-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 42%, transparent 62%);
+  border-radius: var(--radius);
+  pointer-events: none;
+  z-index: 1;
 }
 .shortcut-card.has-cover .card-name {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
   padding: 0 10px;
+  z-index: 2;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9);
 }
 .shortcut-card.has-cover .card-actions {
-  padding: 0 6px;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.shortcut-card.has-cover:hover .card-actions {
+  opacity: 1;
 }
 .shortcut-card.has-cover .card-categories {
-  padding: 0 8px;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  padding: 0;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 /* ===== Card: hidden state ===== */

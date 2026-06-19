@@ -1,5 +1,5 @@
 {
-  "name": "keydeck",
+  "name": "shok",
   "version": "2.0.0",
   "description": "Shok — organize, launch, and track your game library",
   "main": "main.js",
@@ -22,7 +22,7 @@
     "windows-shortcuts": "^0.1.6"
   },
   "build": {
-    "appId": "com.keydeck.app",
+    "appId": "com.shok.app",
     "productName": "Shok",
     "win": {
       "target": "nsis",

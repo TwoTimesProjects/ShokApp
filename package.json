@@ -27,7 +27,7 @@
     "win": {
       "target": "nsis",
       "icon": "GameLaucher.ico",
-      "artifactName": "KeyDeck-Setup.exe"
+      "artifactName": "Shok-Setup.exe"
     },
     "nsis": {
       "oneClick": false,
@@ -48,7 +48,7 @@
     "publish": {
       "provider": "github",
       "owner": "TwoTimesProjects",
-      "repo": "KeyDeckApp"
+      "repo": "ShokApp"
     }
   }
 }

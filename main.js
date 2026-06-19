@@ -24,7 +24,7 @@ function netlifyValidate(licenseKey, email) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify({ key: licenseKey, email });
     const req = https.request({
-      hostname: 'keydeckapp.com',
+      hostname: 'getshokapp.com',
       port: 443,
       path: '/.netlify/functions/validate-key',
       method: 'POST',

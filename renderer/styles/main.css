@@ -967,6 +967,28 @@ body {
   pointer-events: none;
   z-index: 1;
 }
+/* hover sheen — diagonal light sweep */
+.shortcut-card.has-cover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 55%;
+  height: 100%;
+  background: linear-gradient(
+    108deg,
+    transparent 25%,
+    rgba(255,255,255,0.09) 50%,
+    transparent 75%
+  );
+  border-radius: var(--radius);
+  pointer-events: none;
+  z-index: 2;
+  transition: left 0.55s ease;
+}
+.shortcut-card.has-cover:hover::before {
+  left: 130%;
+}
 .shortcut-card.has-cover .card-name {
   position: absolute;
   bottom: 8px;

@@ -110,6 +110,21 @@ ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
 app.whenReady().then(async () => {
   await initStore();
   createWindow();
+  if (!store.get('installTracked')) {
+    store.set('installTracked', true);
+    const { version } = require('./package.json');
+    const data = JSON.stringify({ version });
+    const req = https.request({
+      hostname: 'getshokapp.com',
+      port: 443,
+      path: '/.netlify/functions/track-install',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+    });
+    req.on('error', () => {});
+    req.write(data);
+    req.end();
+  }
 });
 
 app.on('window-all-closed', () => {

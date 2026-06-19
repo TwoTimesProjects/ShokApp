@@ -258,7 +258,7 @@ document.getElementById('license-activate-btn').addEventListener('click', async 
       localStorage.setItem('licenseKey', key);
       localStorage.setItem('licenseEmail', email);
       window.isPro = true;
-      setLicenseStatus('Activated! Welcome to KeyDeck Pro.', 'success');
+      setLicenseStatus('Activated! Welcome to Shok Pro.', 'success');
       setTimeout(() => {
         document.getElementById('license-overlay').classList.remove('visible');
       }, 1000);

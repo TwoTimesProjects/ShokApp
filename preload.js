@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('api', {
   validateLicense: (key, email) => ipcRenderer.invoke('validate-license', { key, email }),
   activateLicense: (licenseKey, email) => ipcRenderer.invoke('activate-license', { licenseKey, email }),
 
+  // Program scanner
+  scanInstalledPrograms: (folderPath) => ipcRenderer.invoke('scan-installed-programs', folderPath),
+  createShortcutsInFolder: (programs, destFolder) => ipcRenderer.invoke('create-shortcuts-in-folder', { programs, destFolder }),
+
   // Auto-updater
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, version) => cb(version)),
   onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', () => cb()),

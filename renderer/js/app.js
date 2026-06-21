@@ -111,6 +111,14 @@ const els = {
   detailNotes:         $('detail-notes'),
   detailBtnHide:       $('detail-btn-hide'),
   detailBtnLaunch:     $('detail-btn-launch'),
+  modalProgramScanner:      $('modal-program-scanner'),
+  programScannerStatus:     $('program-scanner-status'),
+  programSearch:            $('program-search'),
+  programList:              $('program-list'),
+  programSelectedCount:     $('program-selected-count'),
+  btnSelectAllPrograms:     $('btn-select-all-programs'),
+  btnCancelProgramScanner:  $('btn-cancel-program-scanner'),
+  btnAddSelectedPrograms:   $('btn-add-selected-programs'),
   modalSettings:       $('modal-settings'),
   modalStats:          $('modal-stats'),
   btnCloseStats:       $('btn-close-stats'),
@@ -395,6 +403,11 @@ function setupEventListeners() {
   els.btnOpenFolder.addEventListener('click', () => { if (state.folderPath) window.api.openFolder(state.folderPath); });
   els.btnChangeFolder.addEventListener('click', changeFolder);
   els.btnRescan.addEventListener('click', () => { if (state.folderPath) scanFolder(true); });
+  $('btn-find-programs').addEventListener('click', openProgramScanner);
+  els.btnCancelProgramScanner.addEventListener('click', closeModals);
+  els.btnAddSelectedPrograms.addEventListener('click', addSelectedPrograms);
+  els.btnSelectAllPrograms.addEventListener('click', toggleSelectAllPrograms);
+  els.programSearch.addEventListener('input', () => { programSearchQuery = els.programSearch.value; renderProgramList(); });
 
   els.btnAddItemsToCat.addEventListener('click', () => {
     const catId = state.currentView.startsWith('cat-') ? state.currentView.slice(4) : null;
@@ -809,7 +822,8 @@ async function launchShortcut(sc) {
     card.appendChild(overlay);
     setTimeout(() => overlay.remove(), 1500);
   }
-  await window.api.launchShortcut(sc.path);
+  const launchTarget = (sc.isUrl && sc.url?.startsWith('shell:')) ? sc.url : sc.path;
+  await window.api.launchShortcut(launchTarget);
 
   const now = Date.now();
   state.playCounts[sc.id] = (state.playCounts[sc.id]||0)+1;
@@ -1004,7 +1018,7 @@ async function loadIcons(shortcuts) {
 
   for (const sc of uncached) {
     if (sc.isUrl && !sc.iconPath) {
-      if (sc.url) needFavicon.push(sc);
+      if (sc.url && !sc.url.startsWith('shell:')) needFavicon.push(sc);
     } else {
       const p = sc.iconPath || sc.targetPath || sc.path;
       if (!localMap[p]) localMap[p] = [];
@@ -1702,6 +1716,129 @@ function formatSessionTime(secs) {
   return `${h} hr${h!==1?'s':''} ${m} min`;
 }
 function setBtnLoading(btn, loading) { btn.disabled=loading; btn.style.opacity=loading?'0.6':''; }
+
+// ===== Program Scanner =====
+let scannedPrograms = [];
+let selectedPrograms = new Set();
+let programSearchQuery = '';
+const programIconCache = {};
+
+async function openProgramScanner() {
+  if (!state.folderPath) { toast('Select a folder first'); return; }
+  scannedPrograms = [];
+  selectedPrograms = new Set();
+  programSearchQuery = '';
+  els.programSearch.value = '';
+  els.programList.innerHTML = '';
+  els.programScannerStatus.textContent = 'Scanning for installed programs…';
+  els.programSelectedCount.textContent = '0 selected';
+  els.btnSelectAllPrograms.textContent = 'Select All';
+  showModal(els.modalProgramScanner);
+
+  try {
+    const programs = await window.api.scanInstalledPrograms(state.folderPath);
+    scannedPrograms = programs;
+    if (programs.length === 0) {
+      els.programScannerStatus.textContent = 'No new programs found — all detected programs are already in your launcher.';
+    } else {
+      els.programScannerStatus.textContent = `Found ${programs.length} program${programs.length !== 1 ? 's' : ''} not in your launcher.`;
+    }
+    renderProgramList();
+    loadProgramIcons(programs);
+  } catch {
+    els.programScannerStatus.textContent = 'Error scanning for programs.';
+  }
+}
+
+function renderProgramList() {
+  const q = programSearchQuery.toLowerCase();
+  const visible = q ? scannedPrograms.filter(p => p.name.toLowerCase().includes(q)) : scannedPrograms;
+
+  els.programList.innerHTML = '';
+  for (const prog of visible) {
+    const checked = selectedPrograms.has(prog.sourcePath);
+    const item = document.createElement('div');
+    item.className = `add-cat-item${checked ? ' checked' : ''}`;
+    const iconSrc = programIconCache[prog.id];
+    item.innerHTML = `
+      ${iconSrc
+        ? `<img src="${iconSrc}" alt="" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;">`
+        : `<div class="aci-icon">${prog.isStoreApp ? '&#127981;' : '&#127918;'}</div>`}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(prog.name)}${prog.isStoreApp ? ' <span style="font-size:0.68rem;background:var(--accent);color:white;padding:1px 4px;border-radius:3px;opacity:0.85;vertical-align:middle;">Store</span>' : ''}</div>
+        <div style="font-size:0.73rem;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(prog.isStoreApp ? 'Microsoft Store app' : prog.targetPath)}</div>
+      </div>
+      <div class="add-cat-check"></div>`;
+    item.addEventListener('click', () => {
+      if (selectedPrograms.has(prog.sourcePath)) selectedPrograms.delete(prog.sourcePath);
+      else selectedPrograms.add(prog.sourcePath);
+      item.classList.toggle('checked', selectedPrograms.has(prog.sourcePath));
+      updateProgramSelectedCount();
+    });
+    els.programList.appendChild(item);
+  }
+}
+
+function updateProgramSelectedCount() {
+  const n = selectedPrograms.size;
+  els.programSelectedCount.textContent = `${n} selected`;
+}
+
+function toggleSelectAllPrograms() {
+  const q = programSearchQuery.toLowerCase();
+  const visible = q ? scannedPrograms.filter(p => p.name.toLowerCase().includes(q)) : scannedPrograms;
+  const allSelected = visible.length > 0 && visible.every(p => selectedPrograms.has(p.sourcePath));
+  if (allSelected) {
+    visible.forEach(p => selectedPrograms.delete(p.sourcePath));
+    els.btnSelectAllPrograms.textContent = 'Select All';
+  } else {
+    visible.forEach(p => selectedPrograms.add(p.sourcePath));
+    els.btnSelectAllPrograms.textContent = 'Deselect All';
+  }
+  renderProgramList();
+  updateProgramSelectedCount();
+}
+
+async function loadProgramIcons(programs) {
+  const uncached = programs.filter(p => !programIconCache[p.id] && p.iconPath);
+  if (uncached.length === 0) return;
+
+  const pathToIds = {};
+  for (const p of uncached) {
+    if (!pathToIds[p.iconPath]) pathToIds[p.iconPath] = [];
+    pathToIds[p.iconPath].push(p.id);
+  }
+
+  const iconMap = await window.api.getIconsBatch(Object.keys(pathToIds));
+  for (const [iconPath, dataUrl] of Object.entries(iconMap)) {
+    for (const id of (pathToIds[iconPath] || [])) {
+      if (dataUrl) programIconCache[id] = dataUrl;
+    }
+  }
+  renderProgramList();
+}
+
+async function addSelectedPrograms() {
+  if (selectedPrograms.size === 0) { toast('Select at least one program'); return; }
+  if (!state.folderPath) { toast('No folder selected'); return; }
+
+  els.btnAddSelectedPrograms.disabled = true;
+  els.btnAddSelectedPrograms.textContent = 'Adding…';
+
+  try {
+    const selected = scannedPrograms.filter(p => selectedPrograms.has(p.sourcePath));
+    const result = await window.api.createShortcutsInFolder(selected, state.folderPath);
+    closeModals();
+    await scanFolder(false);
+    const n = result.created.length;
+    toast(`Added ${n} shortcut${n !== 1 ? 's' : ''} to launcher`);
+  } catch {
+    toast('Error adding shortcuts');
+  } finally {
+    els.btnAddSelectedPrograms.disabled = false;
+    els.btnAddSelectedPrograms.textContent = '+ Add Selected';
+  }
+}
 
 // ===== Start =====
 init();

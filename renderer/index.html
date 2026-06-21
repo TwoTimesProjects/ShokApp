@@ -55,6 +55,7 @@
           <button class="sidebar-btn" id="btn-open-folder">&#128194; Open Folder</button>
           <button class="sidebar-btn" id="btn-change-folder">&#128230; Change</button>
           <button class="sidebar-btn" id="btn-rescan">&#8635; Rescan</button>
+          <button class="sidebar-btn" id="btn-find-programs">&#128269; Find Programs</button>
         </div>
       </div>
 
@@ -287,6 +288,22 @@
       <div class="modal-actions">
         <button class="btn-secondary" id="btn-steam-sync">&#8635; Sync Steam Library</button>
         <button class="btn-primary" id="btn-close-settings">Done</button>
+      </div>
+    </div>
+
+    <!-- Program Scanner Modal -->
+    <div id="modal-program-scanner" class="modal hidden">
+      <h3>&#128269; Find Programs</h3>
+      <p id="program-scanner-status" style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px;min-height:1.2em;"></p>
+      <input type="text" id="program-search" placeholder="Filter programs..." style="width:100%;box-sizing:border-box;margin-bottom:10px;" />
+      <div id="program-list" style="max-height:360px;overflow-y:auto;"></div>
+      <div class="modal-actions" style="flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;flex:1;min-width:0;">
+          <button class="btn-secondary" id="btn-select-all-programs">Select All</button>
+          <span id="program-selected-count" style="font-size:0.82rem;color:var(--text-dim);">0 selected</span>
+        </div>
+        <button class="btn-secondary" id="btn-cancel-program-scanner">Cancel</button>
+        <button class="btn-primary" id="btn-add-selected-programs">&#10133; Add Selected</button>
       </div>
     </div>
 

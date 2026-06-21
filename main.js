@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const https = require('https');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
 
 // ===== Auto-updater =====
 autoUpdater.autoDownload = true;
@@ -318,9 +318,10 @@ ipcMain.handle('pick-image', async () => {
   } catch (e) { return null; }
 });
 
-// Launch a shortcut — handle steam:// protocol and regular paths
+// Launch a shortcut — handle steam://, shell: (Store apps), and regular paths
 ipcMain.handle('launch-shortcut', (event, shortcutPath) => {
   if (shortcutPath.startsWith('steam://')) shell.openExternal(shortcutPath);
+  else if (shortcutPath.startsWith('shell:')) exec(`explorer "${shortcutPath}"`, { windowsHide: true });
   else shell.openPath(shortcutPath);
   return true;
 });
@@ -541,7 +542,165 @@ Write-Output ($vc.Name + '|' + $vram + '|' + $util + '|' + $temp)
   return { cpuPct, cpuName, cpuCores, cpuTemp, ramTotal, ramUsed, gpuName, gpuUtil, gpuVram, gpuVramUsed, gpuTemp };
 });
 
+// ===== Installed Program Scanner =====
+
+ipcMain.handle('scan-installed-programs', async (event, currentFolderPath) => {
+  const startMenuRoots = [
+    'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs',
+    path.join(os.homedir(), 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+  ];
+  const desktopRoots = [
+    path.join(os.homedir(), 'Desktop'),
+    'C:\\Users\\Public\\Desktop',
+  ];
+
+  const allLnkFiles = [];
+
+  function scanDir(dir, depth) {
+    if (depth > 4) return;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) scanDir(full, depth + 1);
+        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.lnk')) allLnkFiles.push(full);
+      }
+    } catch {}
+  }
+
+  for (const root of [...startMenuRoots, ...desktopRoots]) {
+    if (fs.existsSync(root)) scanDir(root, 0);
+  }
+
+  if (allLnkFiles.length === 0) return [];
+
+  const existingNames = new Set();
+  if (currentFolderPath && fs.existsSync(currentFolderPath)) {
+    try {
+      for (const f of fs.readdirSync(currentFolderPath)) {
+        existingNames.add(path.basename(f, path.extname(f)).toLowerCase());
+      }
+    } catch {}
+  }
+
+  const resolved = await batchResolveLnk(allLnkFiles);
+
+  const JUNK = /uninstall|uninst|setup|\bremove\b|help\b|readme|\bmanual\b|documentation|release.?note|changelog|what'?s.?new|\blicense\b|\beula\b|crash.?report|bug.?report/i;
+
+  const results = [];
+  for (const lnkPath of allLnkFiles) {
+    const info   = resolved[lnkPath] || {};
+    const name   = path.basename(lnkPath, '.lnk');
+    const target = (info.target || '').trim();
+
+    if (JUNK.test(name)) continue;
+    if (!target) continue;
+    if (!target.toLowerCase().endsWith('.exe')) continue;
+    if (JUNK.test(path.basename(target, '.exe'))) continue;
+    if (!fs.existsSync(target)) continue;
+    if (existingNames.has(name.toLowerCase())) continue;
+
+    let iconPath = null;
+    if (info.icon && !info.icon.startsWith(',')) {
+      const candidate = expandEnvVars(info.icon.replace(/,[^,]*$/, '').trim());
+      if (candidate && fs.existsSync(candidate)) iconPath = candidate;
+    }
+    if (!iconPath && fs.existsSync(target)) iconPath = target;
+
+    results.push({
+      id:         Buffer.from(lnkPath).toString('base64'),
+      name,
+      sourcePath: lnkPath,
+      targetPath: target,
+      iconPath:   iconPath || lnkPath,
+    });
+  }
+
+  const storeApps = await getStoreApps(existingNames);
+  const nameSet = new Set(results.map(r => r.name.toLowerCase()));
+  for (const sa of storeApps) {
+    if (!nameSet.has(sa.name.toLowerCase())) {
+      results.push(sa);
+      nameSet.add(sa.name.toLowerCase());
+    }
+  }
+
+  results.sort((a, b) => a.name.localeCompare(b.name));
+  return results;
+});
+
+ipcMain.handle('create-shortcuts-in-folder', async (event, { programs, destFolder }) => {
+  if (!destFolder || !fs.existsSync(destFolder)) return { created: [], errors: [] };
+  const created = [], errors = [];
+  for (const prog of programs) {
+    try {
+      if (prog.isStoreApp) {
+        const dest = path.join(destFolder, `${prog.name}.url`);
+        fs.writeFileSync(dest, `[InternetShortcut]\r\nURL=shell:AppsFolder\\${prog.appUserModelId}\r\n`, 'utf8');
+        created.push(`${prog.name}.url`);
+      } else {
+        const dest = path.join(destFolder, path.basename(prog.sourcePath));
+        fs.copyFileSync(prog.sourcePath, dest);
+        created.push(path.basename(prog.sourcePath));
+      }
+    } catch {
+      errors.push(prog.name);
+    }
+  }
+  return { created, errors };
+});
+
 // ===== Scanning =====
+
+async function getStoreApps(existingNames) {
+  const tmpId     = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const scriptFile = path.join(os.tmpdir(), `gl_store_${tmpId}.ps1`);
+  const script    = `
+$apps = @(Get-StartApps | Where-Object { $_.AppID -match '!' } | Select-Object Name, AppID)
+if ($apps.Count -eq 0) { Write-Output '[]'; exit }
+$apps | ConvertTo-Json -Compress -Depth 2
+`.trim();
+
+  let raw = [];
+  try {
+    fs.writeFileSync(scriptFile, script, 'utf8');
+    const output = execSync(
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptFile}"`,
+      { timeout: 10000, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 }
+    ).trim();
+    if (output) {
+      const parsed = JSON.parse(output);
+      raw = Array.isArray(parsed) ? parsed : [parsed];
+    }
+  } catch { return []; }
+  finally { try { fs.unlinkSync(scriptFile); } catch {} }
+
+  const JUNK_NAME   = /uninstall|uninst|setup|\bremove\b|help\b|readme|\bmanual\b/i;
+  const JUNK_FAMILY = /^(microsoft\.ui\.|microsoft\.net\.|microsoft\.vclibs\.|microsoft\.windowsappruntime\.|microsoft\.services\.|microsoftwindows\.|windows\.|microsoft\.desktopappinstaller_|microsoft\.storepurchaseapp_|microsoft\.mixedreality\.|microsoft\.oneconnect_|microsoft\.advertising\.|microsoft\.windowsfeedback_)/i;
+
+  const results = [];
+  const seen    = new Set();
+  for (const app of raw) {
+    const name  = (app.Name  || '').trim();
+    const appId = (app.AppID || '').trim();
+    if (!name || !appId || !appId.includes('!')) continue;
+    if (JUNK_NAME.test(name)) continue;
+    if (JUNK_FAMILY.test(appId.split('!')[0])) continue;
+    if (existingNames.has(name.toLowerCase())) continue;
+    if (seen.has(appId)) continue;
+    seen.add(appId);
+
+    results.push({
+      id:             Buffer.from(appId).toString('base64'),
+      name,
+      sourcePath:     appId,
+      targetPath:     `shell:AppsFolder\\${appId}`,
+      iconPath:       null,
+      isStoreApp:     true,
+      appUserModelId: appId,
+    });
+  }
+  return results;
+}
 
 async function scanForShortcuts(folderPath) {
   let entries;

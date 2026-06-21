@@ -403,7 +403,10 @@ function setupEventListeners() {
   els.btnOpenFolder.addEventListener('click', () => { if (state.folderPath) window.api.openFolder(state.folderPath); });
   els.btnChangeFolder.addEventListener('click', changeFolder);
   els.btnRescan.addEventListener('click', () => { if (state.folderPath) scanFolder(true); });
-  $('btn-find-programs').addEventListener('click', openProgramScanner);
+  $('btn-find-programs').addEventListener('click', () => {
+    if (!window.isPro) { showProGate('Find Programs'); return; }
+    openProgramScanner();
+  });
   els.btnCancelProgramScanner.addEventListener('click', closeModals);
   els.btnAddSelectedPrograms.addEventListener('click', addSelectedPrograms);
   els.btnSelectAllPrograms.addEventListener('click', toggleSelectAllPrograms);

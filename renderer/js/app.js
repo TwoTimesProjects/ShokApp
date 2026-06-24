@@ -1853,6 +1853,7 @@ async function addSelectedPrograms() {
 
 // ===== Web Shortcut =====
 function openWebShortcutModal() {
+  if (!window.isPro) { showProGate('Web Shortcuts'); return; }
   if (!state.folderPath) { toast('Select a folder first'); return; }
   els.webShortcutName.value        = '';
   els.webShortcutUrl.value         = '';

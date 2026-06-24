@@ -140,6 +140,10 @@ const els = {
   steamSyncStatus:     $('steam-sync-status'),
   btnSteamSync:        $('btn-steam-sync'),
   btnCloseSettings:    $('btn-close-settings'),
+  modalWebShortcut:    $('modal-web-shortcut'),
+  webShortcutName:     $('web-shortcut-name'),
+  webShortcutUrl:      $('web-shortcut-url'),
+  webShortcutError:    $('web-shortcut-error'),
 };
 
 const toastEl = document.createElement('div');
@@ -407,6 +411,10 @@ function setupEventListeners() {
     if (!window.isPro) { showProGate('Find Programs'); return; }
     openProgramScanner();
   });
+  $('btn-web-shortcut').addEventListener('click', openWebShortcutModal);
+  $('btn-cancel-web-shortcut').addEventListener('click', closeModals);
+  $('btn-confirm-web-shortcut').addEventListener('click', confirmWebShortcut);
+  els.webShortcutUrl.addEventListener('keydown', e => { if (e.key === 'Enter') confirmWebShortcut(); });
   els.btnCancelProgramScanner.addEventListener('click', closeModals);
   els.btnAddSelectedPrograms.addEventListener('click', addSelectedPrograms);
   els.btnSelectAllPrograms.addEventListener('click', toggleSelectAllPrograms);
@@ -1840,6 +1848,58 @@ async function addSelectedPrograms() {
   } finally {
     els.btnAddSelectedPrograms.disabled = false;
     els.btnAddSelectedPrograms.textContent = '+ Add Selected';
+  }
+}
+
+// ===== Web Shortcut =====
+function openWebShortcutModal() {
+  if (!state.folderPath) { toast('Select a folder first'); return; }
+  els.webShortcutName.value        = '';
+  els.webShortcutUrl.value         = '';
+  els.webShortcutError.textContent = '';
+  els.modalOverlay.classList.remove('hidden');
+  els.modalWebShortcut.classList.remove('hidden');
+  setTimeout(() => els.webShortcutUrl.focus(), 50);
+}
+
+async function confirmWebShortcut() {
+  const rawUrl  = els.webShortcutUrl.value.trim();
+  let   rawName = els.webShortcutName.value.trim();
+
+  let url = rawUrl;
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+  if (!url) {
+    els.webShortcutError.textContent = 'Please enter a URL.';
+    els.webShortcutUrl.focus();
+    return;
+  }
+  try { new URL(url); } catch {
+    els.webShortcutError.textContent = "That doesn't look like a valid URL.";
+    els.webShortcutUrl.focus();
+    return;
+  }
+
+  if (!rawName) {
+    try { rawName = new URL(url).hostname.replace(/^www\./, ''); } catch { rawName = 'Web Shortcut'; }
+  }
+
+  const btn = $('btn-confirm-web-shortcut');
+  btn.disabled    = true;
+  btn.textContent = 'Adding…';
+  els.webShortcutError.textContent = '';
+
+  try {
+    const result = await window.api.createWebShortcut({ name: rawName, url, folderPath: state.folderPath });
+    if (result.error) { els.webShortcutError.textContent = result.error; return; }
+    closeModals();
+    await scanFolder(false);
+    toast(`Web shortcut "${rawName}" added`);
+  } catch {
+    els.webShortcutError.textContent = 'Failed to create shortcut.';
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '+ Add Shortcut';
   }
 }
 

@@ -326,6 +326,20 @@ ipcMain.handle('launch-shortcut', (event, shortcutPath) => {
   return true;
 });
 
+// Write a .url file to the shortcuts folder for a web shortcut
+ipcMain.handle('create-web-shortcut', async (event, { name, url, folderPath }) => {
+  if (!folderPath || !fs.existsSync(folderPath)) return { error: 'No folder selected' };
+  const safeName = name.replace(/[<>:"/\\|?*\r\n]/g, '_').trim() || 'Web Shortcut';
+  const destPath = path.join(folderPath, `${safeName}.url`);
+  const content  = `[InternetShortcut]\r\nURL=${url}\r\n`;
+  try {
+    fs.writeFileSync(destPath, content, 'utf8');
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // ===== Steam Integration =====
 
 // Fetch owned games from Steam Web API

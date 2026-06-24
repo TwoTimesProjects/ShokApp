@@ -56,6 +56,7 @@
           <button class="sidebar-btn" id="btn-change-folder">&#128230; Change</button>
           <button class="sidebar-btn" id="btn-rescan">&#8635; Rescan</button>
           <button class="sidebar-btn" id="btn-find-programs">&#128269; Find Programs</button>
+          <button class="sidebar-btn" id="btn-web-shortcut">&#127760; Web Shortcut</button>
         </div>
       </div>
 
@@ -304,6 +305,23 @@
         </div>
         <button class="btn-secondary" id="btn-cancel-program-scanner">Cancel</button>
         <button class="btn-primary" id="btn-add-selected-programs">&#10133; Add Selected</button>
+      </div>
+    </div>
+
+    <!-- Web Shortcut Modal -->
+    <div id="modal-web-shortcut" class="modal hidden">
+      <h3>&#127760; Create Web Shortcut</h3>
+      <label class="settings-label">
+        Name
+        <span class="settings-hint">optional — inferred from URL if blank</span>
+      </label>
+      <input type="text" id="web-shortcut-name" class="settings-input" placeholder="e.g. YouTube" maxlength="64" />
+      <label class="settings-label">URL</label>
+      <input type="text" id="web-shortcut-url" class="settings-input" placeholder="https://example.com" autocomplete="off" />
+      <div id="web-shortcut-error" style="color:#e05252;font-size:0.82rem;margin-top:6px;min-height:1.1em;"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-cancel-web-shortcut">Cancel</button>
+        <button class="btn-primary" id="btn-confirm-web-shortcut">&#10133; Add Shortcut</button>
       </div>
     </div>
 

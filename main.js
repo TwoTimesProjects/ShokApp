@@ -5,6 +5,31 @@ const fs = require('fs');
 const os = require('os');
 const https = require('https');
 const { execSync, exec } = require('child_process');
+const DiscordRPC = require('discord-rpc');
+
+// ===== Discord Rich Presence =====
+const DISCORD_CLIENT_ID = '1519435174729875537';
+DiscordRPC.register(DISCORD_CLIENT_ID);
+const rpc = new DiscordRPC.Client({ transport: 'ipc' });
+
+function setDiscordPresence() {
+  rpc.setActivity({
+    details: 'Organizing their library',
+    state: 'Using Shok',
+    startTimestamp: new Date(),
+    largeImageKey: 'shok_logo',
+    largeImageText: 'Shok App Launcher',
+    instance: false,
+  }).catch(() => {});
+}
+
+rpc.on('ready', setDiscordPresence);
+
+app.on('will-quit', () => {
+  rpc.destroy().catch(() => {});
+});
+
+rpc.login({ clientId: DISCORD_CLIENT_ID }).catch(() => {});
 
 // ===== Auto-updater =====
 autoUpdater.autoDownload = true;

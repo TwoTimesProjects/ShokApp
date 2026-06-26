@@ -62,7 +62,10 @@
 
       <nav id="sidebar-nav">
         <div class="nav-section-label">Library</div>
-        <button class="nav-item active" data-view="all">
+        <button class="nav-item active" data-view="home">
+          <span class="nav-icon">&#127968;</span> Home
+        </button>
+        <button class="nav-item" data-view="all">
           <span class="nav-icon">&#127918;</span> All
         </button>
         <button class="nav-item" data-view="recent">
@@ -83,14 +86,44 @@
       </nav>
 
       <div id="sidebar-bottom">
-        <button class="sidebar-btn" id="btn-theme" title="Customize colors">&#127912; Themes</button>
-        <button class="sidebar-btn" id="btn-settings" title="Link Steam">&#9881; Link Steam</button>
+        <button class="sidebar-btn" id="btn-settings" title="Settings">&#9881; Settings</button>
         <button class="sidebar-btn" id="btn-stats" title="System Stats">&#128202; Stats</button>
       </div>
     </aside>
 
     <!-- Main content -->
     <main id="main">
+
+      <!-- Home View -->
+      <div id="home-view" class="hidden">
+        <div id="home-bg"></div>
+        <div id="home-content">
+          <div id="home-top-row">
+            <div id="home-welcome">Welcome back<span id="home-welcome-name"></span>!</div>
+            <div id="home-datetime">
+              <span id="home-date"></span>
+              <span id="home-time"></span>
+            </div>
+          </div>
+          <div id="home-pinned-section" class="hidden">
+            <div class="home-section-label">Pinned</div>
+            <div id="home-pinned-strip"></div>
+          </div>
+          <div id="home-recent-section" class="hidden">
+            <div class="home-section-label">Recently Played</div>
+            <div id="home-recent-strip"></div>
+          </div>
+          <div id="home-cats-section" class="hidden">
+            <div class="home-section-label">Categories</div>
+            <div id="home-cats"></div>
+          </div>
+          <div id="home-favs-section" class="hidden">
+            <div class="home-section-label">Top Favorites</div>
+            <div id="home-favs"></div>
+          </div>
+        </div>
+      </div>
+
       <div id="topbar">
         <div id="topbar-left">
           <h2 id="view-title">All</h2>
@@ -221,33 +254,6 @@
       </div>
     </div>
 
-    <!-- Theme Picker Modal -->
-    <div id="modal-theme" class="modal hidden">
-      <h3>&#127912; Color Themes</h3>
-      <div id="theme-presets"></div>
-      <div class="theme-divider">Custom</div>
-      <div id="custom-theme-pickers">
-        <label>Background <input type="color" data-var="--bg-primary" /></label>
-        <label>Sidebar <input type="color" data-var="--bg-sidebar" /></label>
-        <label>Card <input type="color" data-var="--bg-card" /></label>
-        <label>Accent <input type="color" data-var="--accent" /></label>
-        <label>Text <input type="color" data-var="--text-primary" /></label>
-        <label>Text dim <input type="color" data-var="--text-dim" /></label>
-      </div>
-      <div id="save-theme-row">
-        <input type="text" id="save-theme-name" placeholder="Theme name..." maxlength="32" />
-        <button class="btn-secondary" id="btn-save-theme">&#43; Save Theme</button>
-      </div>
-      <div id="saved-themes-section" class="hidden">
-        <div class="theme-divider">Saved</div>
-        <div id="saved-themes-list"></div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="btn-reset-theme">Reset</button>
-        <button class="btn-primary" id="btn-close-theme">Done</button>
-      </div>
-    </div>
-
     <!-- Rename Category Modal -->
     <div id="modal-rename-cat" class="modal hidden">
       <h3>Rename Category</h3>
@@ -261,6 +267,102 @@
     <!-- Settings Modal -->
     <div id="modal-settings" class="modal hidden">
       <h3>&#9881; Settings</h3>
+      <div class="settings-group">
+        <div class="settings-group-title">General</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Launch on Boot</span>
+            <span class="settings-row-hint">Start Shok automatically when Windows starts</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-launch-on-boot" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <label class="settings-label" style="margin-top:14px;">
+          Gamertag
+          <span class="settings-hint">Shown on the Home screen — optional</span>
+        </label>
+        <input type="text" id="settings-gamertag" class="settings-input" placeholder="e.g. PlayerOne" maxlength="32" />
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-title">Home Screen</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Clock &amp; Date</span>
+            <span class="settings-row-hint">Show the time and date on the Home screen</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-home-clock" checked />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top:10px;">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Recently Played</span>
+            <span class="settings-row-hint">Show a strip of recently launched games</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-home-recent" checked />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top:10px;">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Categories</span>
+            <span class="settings-row-hint">Show your category quick-launch pills</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-home-cats" checked />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top:10px;">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Top Favorites</span>
+            <span class="settings-row-hint">Show your 3 most-launched starred games</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-home-favs" checked />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-title">Appearance</div>
+        <div id="theme-presets"></div>
+        <div class="theme-divider">Custom</div>
+        <div id="custom-theme-pickers">
+          <label>Background <input type="color" data-var="--bg-primary" /></label>
+          <label>Sidebar <input type="color" data-var="--bg-sidebar" /></label>
+          <label>Card <input type="color" data-var="--bg-card" /></label>
+          <label>Accent <input type="color" data-var="--accent" /></label>
+          <label>Text <input type="color" data-var="--text-primary" /></label>
+          <label>Text dim <input type="color" data-var="--text-dim" /></label>
+        </div>
+        <div id="save-theme-row">
+          <input type="text" id="save-theme-name" placeholder="Theme name..." maxlength="32" />
+          <button class="btn-secondary" id="btn-save-theme">&#43; Save Theme</button>
+        </div>
+        <div id="saved-themes-section" class="hidden">
+          <div class="theme-divider">Saved</div>
+          <div id="saved-themes-list"></div>
+        </div>
+        <div class="settings-row" style="margin-top:14px;">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Home Background</span>
+            <span class="settings-row-hint">Wallpaper image behind the Home screen</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn-secondary" id="btn-set-home-bg" style="font-size:12px;padding:5px 10px;">Set Image</button>
+            <button class="btn-secondary hidden" id="btn-remove-home-bg" style="font-size:12px;padding:5px 10px;">Remove</button>
+          </div>
+        </div>
+        <div class="settings-appearance-footer">
+          <button class="btn-secondary" id="btn-reset-theme">Reset Theme</button>
+        </div>
+      </div>
+
       <div class="settings-group">
         <div class="settings-group-title">
           Steam Integration
@@ -405,6 +507,11 @@
     <button id="ctx-rename">Rename</button>
     <button id="ctx-add-items">Add Items</button>
     <button id="ctx-delete">Delete</button>
+  </div>
+
+  <!-- Context menu for shortcut cards -->
+  <div id="card-context-menu" class="hidden">
+    <button id="ctx-card-pin">Pin to Home</button>
   </div>
 
   <script src="js/app.js"></script>

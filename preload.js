@@ -48,4 +48,8 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, version) => cb(version)),
   onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', () => cb()),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+
+  // Launch on boot
+  getLaunchOnBoot: () => ipcRenderer.invoke('get-launch-on-boot'),
+  setLaunchOnBoot: (enable) => ipcRenderer.invoke('set-launch-on-boot', enable),
 });

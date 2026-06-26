@@ -134,6 +134,10 @@ ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
 
 app.whenReady().then(async () => {
   await initStore();
+  if (!store.get('bootDefaultApplied')) {
+    app.setLoginItemSettings({ openAtLogin: true });
+    store.set('bootDefaultApplied', true);
+  }
   createWindow();
   if (!store.get('installTracked')) {
     store.set('installTracked', true);
@@ -487,6 +491,12 @@ ipcMain.handle('activate-license', async (event, { licenseKey, email }) => {
   } catch (e) {
     return { activated: false, error: e.message };
   }
+});
+
+// Launch on boot
+ipcMain.handle('get-launch-on-boot', () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle('set-launch-on-boot', (event, enable) => {
+  app.setLoginItemSettings({ openAtLogin: !!enable });
 });
 
 // System stats

@@ -18,7 +18,7 @@ let state = {
   playCounts: {},
   firstPlayed: {},
   lastPlayedTime: {},
-  currentView: 'all',
+  currentView: 'home',
   searchQuery: '',
   sortOrder: 'name-az',
   customArt: {},
@@ -28,7 +28,12 @@ let state = {
   selectedId: null,
   notes: {},
   contextCatId: null,
+  contextCardId: null,
   addToCatTargetId: null,
+  homeBg: null,
+  gamertag: '',
+  pinnedItems: [],
+  homeLayout: { showClock: true, showRecentlyPlayed: true, showCategories: true, showFavorites: true },
 };
 
 // All items = folder shortcuts + standalone Steam games (deduped)
@@ -80,10 +85,8 @@ const els = {
   addToCatName:        $('add-to-cat-name'),
   addToCatList:        $('add-to-cat-list'),
   btnCloseAddToCat:    $('btn-close-add-to-cat'),
-  modalTheme:          $('modal-theme'),
   themePresets:        $('theme-presets'),
   btnResetTheme:       $('btn-reset-theme'),
-  btnCloseTheme:       $('btn-close-theme'),
   modalRenameCat:      $('modal-rename-cat'),
   renameCatInput:      $('rename-cat-input'),
   btnCancelRenameCat:  $('btn-cancel-rename-cat'),
@@ -135,6 +138,13 @@ const els = {
   statGpuTemp:         $('stat-gpu-temp'),
   statGpuDetail:       $('stat-gpu-detail'),
   statGpuName:         $('stat-gpu-name'),
+  toggleLaunchOnBoot:  $('toggle-launch-on-boot'),
+  toggleHomeClock:     $('toggle-home-clock'),
+  toggleHomeRecent:    $('toggle-home-recent'),
+  toggleHomeCats:      $('toggle-home-cats'),
+  toggleHomeFavs:      $('toggle-home-favs'),
+  cardContextMenu:     $('card-context-menu'),
+  ctxCardPin:          $('ctx-card-pin'),
   steamApiKey:         $('steam-api-key'),
   steamIdVal:          $('steam-id-val'),
   steamSyncStatus:     $('steam-sync-status'),
@@ -339,6 +349,11 @@ async function loadPersistedState() {
   state.steamPlaytime  = await window.api.storeGet('steamPlaytime') || {};
   state.steamAppIds    = await window.api.storeGet('steamAppIds') || {};
   state.sessionTime    = await window.api.storeGet('sessionTime') || {};
+  state.homeBg         = await window.api.storeGet('homeBg')       || null;
+  state.gamertag       = await window.api.storeGet('gamertag')     || '';
+  state.pinnedItems    = await window.api.storeGet('pinnedItems')  || [];
+  state.homeLayout     = { showClock: true, showRecentlyPlayed: true, showCategories: true, showFavorites: true,
+                           ...(await window.api.storeGet('homeLayout') || {}) };
 
   const cats = await window.api.storeGet('categories') || {};
   state.categories = {};
@@ -458,8 +473,6 @@ function setupEventListeners() {
   els.categoryNameInput.addEventListener('keydown', e => { if (e.key==='Enter') confirmAddCategory(); });
   els.btnCloseAddToCat.addEventListener('click', closeModals);
 
-  $('btn-theme').addEventListener('click', () => { openThemeModal(); });
-  els.btnCloseTheme.addEventListener('click', closeModals);
   els.btnResetTheme.addEventListener('click', resetTheme);
 
   $('btn-stats').addEventListener('click', () => {
@@ -468,12 +481,51 @@ function setupEventListeners() {
   });
   els.btnCloseStats.addEventListener('click', closeStatsModal);
 
-  $('btn-settings').addEventListener('click', () => {
-    if (!window.isPro) { showProGate('Steam Integration'); return; }
-    openSettingsModal();
+  $('btn-settings').addEventListener('click', () => openSettingsModal());
+  els.toggleLaunchOnBoot.addEventListener('change', e => {
+    window.api.setLaunchOnBoot(e.target.checked);
+    toast(e.target.checked ? 'Shok will launch on boot' : 'Launch on boot disabled');
   });
+  $('btn-set-home-bg').addEventListener('click', () => {
+    if (!window.isPro) { showProGate('Home Background'); return; }
+    pickHomeBg();
+  });
+  $('btn-remove-home-bg').addEventListener('click', removeHomeBg);
+
+  let gamertagTimer;
+  $('settings-gamertag').addEventListener('input', e => {
+    state.gamertag = e.target.value.trim();
+    clearTimeout(gamertagTimer);
+    gamertagTimer = setTimeout(() => {
+      window.api.storeSet('gamertag', state.gamertag);
+      if (state.currentView === 'home') updateHomeWelcome();
+    }, 400);
+  });
+
+  // Home layout toggles
+  function makeLayoutToggle(el, key) {
+    el.addEventListener('change', e => {
+      state.homeLayout[key] = e.target.checked;
+      window.api.storeSet('homeLayout', state.homeLayout);
+      if (state.currentView === 'home') renderHomeView();
+    });
+  }
+  makeLayoutToggle(els.toggleHomeClock,  'showClock');
+  makeLayoutToggle(els.toggleHomeRecent, 'showRecentlyPlayed');
+  makeLayoutToggle(els.toggleHomeCats,   'showCategories');
+  makeLayoutToggle(els.toggleHomeFavs,   'showFavorites');
+
+  // Card context menu
+  els.ctxCardPin.addEventListener('click', () => {
+    if (state.contextCardId) togglePinned(state.contextCardId);
+    closeCardContextMenu();
+  });
+  document.addEventListener('click', () => closeCardContextMenu());
   els.btnCloseSettings.addEventListener('click', closeSettingsModal);
-  els.btnSteamSync.addEventListener('click', syncSteam);
+  els.btnSteamSync.addEventListener('click', () => {
+    if (!window.isPro) { showProGate('Steam Integration'); return; }
+    syncSteam();
+  });
   $('btn-steam-help').addEventListener('click', () => {
     $('steam-help-text').classList.toggle('hidden');
   });
@@ -593,13 +645,26 @@ function renderSidebar() {
 
 // ===== View Routing =====
 function setView(view) {
+  const wasHome = state.currentView === 'home';
   state.currentView = view;
   closeDetailPanel();
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.toggle('active', n.dataset.view===view));
+  if (wasHome && view !== 'home') stopHomeClock();
   renderView();
 }
 
 function renderView() {
+  const isHome = state.currentView === 'home';
+  $('home-view').classList.toggle('hidden', !isHome);
+  $('topbar').classList.toggle('hidden', isHome);
+  $('content-row').classList.toggle('hidden', isHome);
+  if (isHome) {
+    els.mostPlayedStrip.classList.add('hidden');
+    els.recentStrip.classList.add('hidden');
+    renderHomeView();
+    return;
+  }
+
   const view = state.currentView;
   const q    = state.searchQuery;
 
@@ -804,6 +869,7 @@ function buildCard(sc) {
   card.querySelector('.btn-star').addEventListener('click', e => { e.stopPropagation(); toggleFavorite(sc.id, card); });
   card.querySelector('.btn-add-cat').addEventListener('click', e => { e.stopPropagation(); openAddToCategoryModal(sc.id); });
   card.addEventListener('click', e => { if (e.target.closest('.card-actions')) return; openDetailPanel(sc); });
+  card.addEventListener('contextmenu', e => openCardContextMenu(e, sc.id));
 
   return card;
 }
@@ -847,7 +913,8 @@ async function launchShortcut(sc) {
 
   await saveState();
   renderRecentStrip();
-  if (state.currentView==='recent') renderView();
+  if (state.currentView === 'home')   renderHomeView();
+  if (state.currentView === 'recent') renderView();
   if (state.selectedId===sc.id) populateDetailPanel(sc);
 }
 
@@ -947,7 +1014,7 @@ function updateDetailCover(scId) {
   }
 }
 
-async function resizeImage(dataUrl, maxWidth) {
+async function resizeImage(dataUrl, maxWidth, quality = 0.88) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
@@ -956,7 +1023,7 @@ async function resizeImage(dataUrl, maxWidth) {
       const canvas = document.createElement('canvas');
       canvas.width=w; canvas.height=h;
       canvas.getContext('2d').drawImage(img,0,0,w,h);
-      resolve(canvas.toDataURL('image/jpeg', 0.88));
+      resolve(canvas.toDataURL('image/jpeg', quality));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -1256,11 +1323,21 @@ function setSteamStatus(msg, isError) {
 }
 
 // ===== Settings Modal =====
-function openSettingsModal() {
+async function openSettingsModal() {
   els.steamApiKey.value = state.steamCreds.apiKey || '';
   els.steamIdVal.value  = state.steamCreds.steamId || '';
   els.steamSyncStatus.textContent = '';
   els.steamSyncStatus.className   = 'steam-status';
+  els.toggleLaunchOnBoot.checked  = await window.api.getLaunchOnBoot();
+  syncColorPickers();
+  renderSavedThemes();
+  applyThemeProGating();
+  $('btn-remove-home-bg').classList.toggle('hidden', !state.homeBg);
+  $('settings-gamertag').value        = state.gamertag || '';
+  els.toggleHomeClock.checked         = state.homeLayout.showClock;
+  els.toggleHomeRecent.checked        = state.homeLayout.showRecentlyPlayed;
+  els.toggleHomeCats.checked          = state.homeLayout.showCategories;
+  els.toggleHomeFavs.checked          = state.homeLayout.showFavorites;
   showModal(els.modalSettings);
 }
 
@@ -1622,9 +1699,7 @@ function clearActiveThemeBtn() {
   document.querySelectorAll('.theme-preset-btn').forEach(b => b.classList.remove('active'));
 }
 
-function openThemeModal() {
-  syncColorPickers();
-  renderSavedThemes();
+function applyThemeProGating() {
   const customSection = $('custom-theme-pickers');
   const saveRow = $('save-theme-row');
   let proNotice = $('theme-pro-notice');
@@ -1643,7 +1718,6 @@ function openThemeModal() {
       saveRow.insertAdjacentElement('afterend', proNotice);
     }
   }
-  showModal(els.modalTheme);
 }
 function syncColorPickers() {
   document.querySelectorAll('#custom-theme-pickers input[type="color"]').forEach(picker => {
@@ -1903,6 +1977,203 @@ async function confirmWebShortcut() {
     btn.textContent = '+ Add Shortcut';
   }
 }
+
+// ===== Home View =====
+let homeClockInterval = null;
+
+function startHomeClock() {
+  if (homeClockInterval) return;
+  updateHomeClock();
+  homeClockInterval = setInterval(updateHomeClock, 1000);
+}
+
+function stopHomeClock() {
+  if (homeClockInterval) { clearInterval(homeClockInterval); homeClockInterval = null; }
+}
+
+function updateHomeClock() {
+  const timeEl = $('home-time');
+  const dateEl = $('home-date');
+  if (!timeEl || !dateEl) return;
+  const now = new Date();
+  timeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  dateEl.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+function applyHomeBg() {
+  const bg = $('home-bg');
+  if (!bg) return;
+  if (state.homeBg) {
+    bg.style.backgroundImage = `url('${state.homeBg}')`;
+    bg.classList.add('has-image');
+  } else {
+    bg.style.backgroundImage = '';
+    bg.classList.remove('has-image');
+  }
+}
+
+async function pickHomeBg() {
+  const raw = await window.api.pickImage();
+  if (!raw) return;
+  const resized = raw.startsWith('data:image/gif') ? raw : await resizeImage(raw, 2560, 0.96);
+  state.homeBg = resized;
+  await window.api.storeSet('homeBg', resized);
+  $('btn-remove-home-bg').classList.remove('hidden');
+  if (state.currentView === 'home') applyHomeBg();
+  toast('Home background set');
+}
+
+async function removeHomeBg() {
+  state.homeBg = null;
+  await window.api.storeDelete('homeBg');
+  $('btn-remove-home-bg').classList.add('hidden');
+  if (state.currentView === 'home') applyHomeBg();
+  toast('Home background removed');
+}
+
+function renderHomeView() {
+  const layout = state.homeLayout;
+  // Clock
+  $('home-datetime').classList.toggle('hidden', !layout.showClock);
+  if (layout.showClock) startHomeClock(); else stopHomeClock();
+  applyHomeBg();
+  updateHomeWelcome();
+  renderHomePinned();
+  if (layout.showRecentlyPlayed) renderHomeRecentList(); else $('home-recent-section').classList.add('hidden');
+  if (layout.showCategories)     renderHomeCats();       else $('home-cats-section').classList.add('hidden');
+  if (layout.showFavorites)      renderHomeFavs();       else $('home-favs-section').classList.add('hidden');
+}
+
+function updateHomeWelcome() {
+  const nameEl = $('home-welcome-name');
+  if (!nameEl) return;
+  nameEl.textContent = state.gamertag ? `, ${state.gamertag}` : '';
+}
+
+
+function renderHomeCats() {
+  const container = $('home-cats');
+  const section   = $('home-cats-section');
+  if (!container) return;
+  const cats = Object.entries(state.categories);
+  section.classList.toggle('hidden', cats.length === 0);
+  container.innerHTML = '';
+  for (const [id, cat] of cats) {
+    const btn = document.createElement('button');
+    btn.className   = 'home-cat-tile';
+    btn.textContent = cat.name;
+    btn.addEventListener('click', () => setView(`cat-${id}`));
+    container.appendChild(btn);
+  }
+}
+
+function buildHomeCard(sc) {
+  const isFav  = state.favorites.has(sc.id);
+  const icon   = state.iconCache[sc.id];
+  const art    = state.customArt[sc.id];
+  const fallbackIcon = sc.isSteamGame ? '&#127918;' : (sc.isUrl ? '&#127760;' : '&#127918;');
+
+  const card = document.createElement('div');
+  card.className = `shortcut-card${art ? ' has-cover' : ''}`;
+  card.dataset.id = sc.id;
+  card.title = sc.name;
+
+  const actBtns = `
+    <div class="card-actions">
+      <button class="btn-play" title="Launch">&#9654;</button>
+      <button class="btn-star${isFav ? ' active' : ''}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">&#11088;</button>
+    </div>`;
+
+  if (art) {
+    card.innerHTML = `
+      <img class="card-cover-img" src="${art}" alt="" />
+      <div class="card-name">${escHtml(sc.name)}</div>
+      ${actBtns}`;
+  } else {
+    card.innerHTML = `
+      <div class="card-icon-wrap">
+        <img class="card-icon-img${icon ? '' : ' hidden'}" src="${icon || ''}" alt="" />
+        <div class="card-icon-fallback${icon ? ' hidden' : ''}">${fallbackIcon}</div>
+      </div>
+      <div class="card-name">${escHtml(sc.name)}</div>
+      ${actBtns}`;
+  }
+
+  card.querySelector('.btn-play').addEventListener('click', e => { e.stopPropagation(); launchShortcut(sc); });
+  card.querySelector('.btn-star').addEventListener('click', e => { e.stopPropagation(); toggleFavorite(sc.id, card); });
+  card.addEventListener('click', e => { if (!e.target.closest('.card-actions')) launchShortcut(sc); });
+  card.addEventListener('contextmenu', e => openCardContextMenu(e, sc.id));
+  return card;
+}
+
+function renderHomeRecentList() {
+  const strip   = $('home-recent-strip');
+  const section = $('home-recent-section');
+  if (!strip) return;
+  const all    = getAllItems();
+  const recent = state.recentlyPlayed.slice(0, 6)
+    .map(r => all.find(s => s.id === r.id))
+    .filter(Boolean);
+  section.classList.toggle('hidden', recent.length === 0);
+  strip.innerHTML = '';
+  for (const sc of recent) strip.appendChild(buildHomeCard(sc));
+}
+
+function renderHomeFavs() {
+  const container = $('home-favs');
+  const section   = $('home-favs-section');
+  if (!container) return;
+  const all = getAllItems();
+  let favs  = all.filter(s => state.favorites.has(s.id));
+  favs.sort((a, b) => (state.playCounts[b.id] || 0) - (state.playCounts[a.id] || 0));
+  favs = favs.slice(0, 3);
+  section.classList.toggle('hidden', favs.length === 0);
+  container.innerHTML = '';
+  for (const sc of favs) container.appendChild(buildHomeCard(sc));
+}
+
+// ===== Pinned to Home =====
+function togglePinned(id) {
+  const idx = state.pinnedItems.indexOf(id);
+  if (idx === -1) {
+    state.pinnedItems.push(id);
+    toast('Pinned to Home');
+  } else {
+    state.pinnedItems.splice(idx, 1);
+    toast('Unpinned from Home');
+  }
+  window.api.storeSet('pinnedItems', state.pinnedItems);
+  if (state.currentView === 'home') renderHomePinned();
+}
+
+function renderHomePinned() {
+  const strip   = $('home-pinned-strip');
+  const section = $('home-pinned-section');
+  if (!strip) return;
+  const all    = getAllItems();
+  const pinned = state.pinnedItems.map(id => all.find(s => s.id === id)).filter(Boolean);
+  section.classList.toggle('hidden', pinned.length === 0);
+  strip.innerHTML = '';
+  for (const sc of pinned) strip.appendChild(buildHomeCard(sc));
+}
+
+function openCardContextMenu(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+  state.contextCardId = id;
+  const isPinned = state.pinnedItems.includes(id);
+  els.ctxCardPin.textContent = isPinned ? 'Unpin from Home' : 'Pin to Home';
+  const menu = els.cardContextMenu;
+  menu.classList.remove('hidden');
+  menu.style.left = `${e.clientX}px`;
+  menu.style.top  = `${e.clientY}px`;
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = `${window.innerWidth  - r.width  - 8}px`;
+    if (r.bottom > window.innerHeight) menu.style.top  = `${window.innerHeight - r.height - 8}px`;
+  });
+}
+function closeCardContextMenu() { els.cardContextMenu.classList.add('hidden'); }
 
 // ===== Start =====
 init();

@@ -33,6 +33,7 @@ let state = {
   homeBg: null,
   gamertag: '',
   pinnedItems: [],
+  pinnedPositions: {},
   homeLayout: { showClock: true, showRecentlyPlayed: true, showCategories: true, showFavorites: true },
 };
 
@@ -143,6 +144,7 @@ const els = {
   toggleHomeRecent:    $('toggle-home-recent'),
   toggleHomeCats:      $('toggle-home-cats'),
   toggleHomeFavs:      $('toggle-home-favs'),
+  toggleHomePinnedFree: $('toggle-home-pinned-free'),
   cardContextMenu:     $('card-context-menu'),
   ctxCardPin:          $('ctx-card-pin'),
   steamApiKey:         $('steam-api-key'),
@@ -349,11 +351,12 @@ async function loadPersistedState() {
   state.steamPlaytime  = await window.api.storeGet('steamPlaytime') || {};
   state.steamAppIds    = await window.api.storeGet('steamAppIds') || {};
   state.sessionTime    = await window.api.storeGet('sessionTime') || {};
-  state.homeBg         = await window.api.storeGet('homeBg')       || null;
-  state.gamertag       = await window.api.storeGet('gamertag')     || '';
-  state.pinnedItems    = await window.api.storeGet('pinnedItems')  || [];
-  state.homeLayout     = { showClock: true, showRecentlyPlayed: true, showCategories: true, showFavorites: true,
-                           ...(await window.api.storeGet('homeLayout') || {}) };
+  state.homeBg          = await window.api.storeGet('homeBg')           || null;
+  state.gamertag        = await window.api.storeGet('gamertag')         || '';
+  state.pinnedItems     = await window.api.storeGet('pinnedItems')      || [];
+  state.pinnedPositions = await window.api.storeGet('pinnedPositions')  || {};
+  state.homeLayout      = { showClock: true, showRecentlyPlayed: true, showCategories: true, showFavorites: true, pinnedFreeMode: false,
+                            ...(await window.api.storeGet('homeLayout') || {}) };
 
   const cats = await window.api.storeGet('categories') || {};
   state.categories = {};
@@ -510,10 +513,11 @@ function setupEventListeners() {
       if (state.currentView === 'home') renderHomeView();
     });
   }
-  makeLayoutToggle(els.toggleHomeClock,  'showClock');
-  makeLayoutToggle(els.toggleHomeRecent, 'showRecentlyPlayed');
-  makeLayoutToggle(els.toggleHomeCats,   'showCategories');
-  makeLayoutToggle(els.toggleHomeFavs,   'showFavorites');
+  makeLayoutToggle(els.toggleHomeClock,      'showClock');
+  makeLayoutToggle(els.toggleHomeRecent,     'showRecentlyPlayed');
+  makeLayoutToggle(els.toggleHomeCats,       'showCategories');
+  makeLayoutToggle(els.toggleHomeFavs,       'showFavorites');
+  makeLayoutToggle(els.toggleHomePinnedFree, 'pinnedFreeMode');
 
   // Card context menu
   els.ctxCardPin.addEventListener('click', () => {
@@ -1334,10 +1338,11 @@ async function openSettingsModal() {
   applyThemeProGating();
   $('btn-remove-home-bg').classList.toggle('hidden', !state.homeBg);
   $('settings-gamertag').value        = state.gamertag || '';
-  els.toggleHomeClock.checked         = state.homeLayout.showClock;
-  els.toggleHomeRecent.checked        = state.homeLayout.showRecentlyPlayed;
-  els.toggleHomeCats.checked          = state.homeLayout.showCategories;
-  els.toggleHomeFavs.checked          = state.homeLayout.showFavorites;
+  els.toggleHomeClock.checked          = state.homeLayout.showClock;
+  els.toggleHomeRecent.checked         = state.homeLayout.showRecentlyPlayed;
+  els.toggleHomeCats.checked           = state.homeLayout.showCategories;
+  els.toggleHomeFavs.checked           = state.homeLayout.showFavorites;
+  els.toggleHomePinnedFree.checked     = state.homeLayout.pinnedFreeMode;
   showModal(els.modalSettings);
 }
 
@@ -2101,7 +2106,6 @@ function buildHomeCard(sc) {
 
   card.querySelector('.btn-play').addEventListener('click', e => { e.stopPropagation(); launchShortcut(sc); });
   card.querySelector('.btn-star').addEventListener('click', e => { e.stopPropagation(); toggleFavorite(sc.id, card); });
-  card.addEventListener('click', e => { if (!e.target.closest('.card-actions')) launchShortcut(sc); });
   card.addEventListener('contextmenu', e => openCardContextMenu(e, sc.id));
   return card;
 }
@@ -2140,6 +2144,8 @@ function togglePinned(id) {
     toast('Pinned to Home');
   } else {
     state.pinnedItems.splice(idx, 1);
+    delete state.pinnedPositions[id];
+    window.api.storeSet('pinnedPositions', state.pinnedPositions);
     toast('Unpinned from Home');
   }
   window.api.storeSet('pinnedItems', state.pinnedItems);
@@ -2147,14 +2153,121 @@ function togglePinned(id) {
 }
 
 function renderHomePinned() {
-  const strip   = $('home-pinned-strip');
-  const section = $('home-pinned-section');
-  if (!strip) return;
+  const strip         = $('home-pinned-strip');
+  const section       = $('home-pinned-section');
+  const freeContainer = $('home-pinned-free');
+  if (!strip || !freeContainer) return;
+
   const all    = getAllItems();
   const pinned = state.pinnedItems.map(id => all.find(s => s.id === id)).filter(Boolean);
-  section.classList.toggle('hidden', pinned.length === 0);
-  strip.innerHTML = '';
-  for (const sc of pinned) strip.appendChild(buildHomeCard(sc));
+
+  if (state.homeLayout.pinnedFreeMode) {
+    section.classList.add('hidden');
+    freeContainer.innerHTML = '';
+    pinned.forEach((sc, idx) => {
+      const card  = buildHomeCard(sc);
+      const pos   = state.pinnedPositions[sc.id] || { xPct: 4 + idx * 5, yPct: 8 + idx * 5 };
+      card.style.left  = `${pos.xPct}%`;
+      card.style.top   = `${pos.yPct}%`;
+      card.style.width = `${pos.width || 150}px`;
+
+      const handle = document.createElement('div');
+      handle.className = 'pinned-resize-handle';
+      card.appendChild(handle);
+
+      makePinnedCardDraggable(card, sc);
+      makePinnedCardResizable(handle, card, sc);
+      freeContainer.appendChild(card);
+    });
+  } else {
+    freeContainer.innerHTML = '';
+    section.classList.toggle('hidden', pinned.length === 0);
+    strip.innerHTML = '';
+    for (const sc of pinned) strip.appendChild(buildHomeCard(sc));
+  }
+}
+
+function makePinnedCardDraggable(cardEl, sc) {
+  const THRESHOLD = 5;
+
+  cardEl.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.target.closest('.card-actions') || e.target.closest('.pinned-resize-handle')) return;
+    e.preventDefault();
+
+    const container = $('home-pinned-free');
+    const cRect     = container.getBoundingClientRect();
+    const startX    = e.clientX;
+    const startY    = e.clientY;
+    const origLeft  = parseFloat(cardEl.style.left)  / 100 * cRect.width;
+    const origTop   = parseFloat(cardEl.style.top)   / 100 * cRect.height;
+    let   dragging  = false;
+
+    function onMove(e2) {
+      const dx = e2.clientX - startX;
+      const dy = e2.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) > THRESHOLD) {
+        dragging = true;
+        cardEl.classList.add('is-dragging');
+      }
+      if (!dragging) return;
+
+      const r    = container.getBoundingClientRect();
+      const newL = Math.max(0, Math.min(origLeft + dx, r.width  - cardEl.offsetWidth));
+      const newT = Math.max(0, Math.min(origTop  + dy, r.height - cardEl.offsetHeight));
+      cardEl.style.left = `${(newL / r.width)  * 100}%`;
+      cardEl.style.top  = `${(newT / r.height) * 100}%`;
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+      if (dragging) {
+        cardEl.classList.remove('is-dragging');
+        // Suppress the click the browser fires after mouseup
+        cardEl.addEventListener('click', e => e.stopImmediatePropagation(), { once: true, capture: true });
+        state.pinnedPositions[sc.id] = {
+          ...(state.pinnedPositions[sc.id] || {}),
+          xPct: parseFloat(cardEl.style.left),
+          yPct: parseFloat(cardEl.style.top),
+        };
+        window.api.storeSet('pinnedPositions', state.pinnedPositions);
+      }
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+  });
+}
+
+function makePinnedCardResizable(handle, cardEl, sc) {
+  handle.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startX     = e.clientX;
+    const startWidth = cardEl.offsetWidth;
+    cardEl.classList.add('is-resizing');
+
+    function onMove(e2) {
+      const newWidth = Math.max(80, Math.min(400, startWidth + (e2.clientX - startX)));
+      cardEl.style.width = `${newWidth}px`;
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+      cardEl.classList.remove('is-resizing');
+      state.pinnedPositions[sc.id] = {
+        ...(state.pinnedPositions[sc.id] || {}),
+        width: parseFloat(cardEl.style.width),
+      };
+      window.api.storeSet('pinnedPositions', state.pinnedPositions);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+  });
 }
 
 function openCardContextMenu(e, id) {

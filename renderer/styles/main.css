@@ -1392,6 +1392,60 @@ body {
   flex-shrink: 0;
 }
 
+/* Free-floating pinned cards overlay */
+#home-pinned-free {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+#home-pinned-free .shortcut-card {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+#home-pinned-free .shortcut-card:hover {
+  transform: none;
+}
+#home-pinned-free .shortcut-card.is-dragging {
+  cursor: grabbing;
+  opacity: 0.88;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+  z-index: 100;
+  transform: scale(1.04);
+  transition: none;
+}
+#home-pinned-free .shortcut-card.is-resizing {
+  cursor: nwse-resize;
+  transition: none;
+  z-index: 100;
+}
+
+/* Resize handle — bottom-right corner grip */
+.pinned-resize-handle {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background-image:
+    radial-gradient(circle, var(--text-dim) 1.5px, transparent 1.5px),
+    radial-gradient(circle, var(--text-dim) 1.5px, transparent 1.5px),
+    radial-gradient(circle, var(--text-dim) 1.5px, transparent 1.5px);
+  background-size: 5px 5px;
+  background-position: 0 100%, 50% 50%, 100% 0;
+  background-repeat: no-repeat;
+}
+#home-pinned-free .shortcut-card:hover .pinned-resize-handle,
+#home-pinned-free .shortcut-card.is-resizing .pinned-resize-handle {
+  opacity: 0.7;
+}
+
 /* Home section headers */
 .home-section-label {
   font-size: 10px;

@@ -97,6 +97,7 @@
       <!-- Home View -->
       <div id="home-view" class="hidden">
         <div id="home-bg"></div>
+        <div id="home-pinned-free"></div>
         <div id="home-content">
           <div id="home-top-row">
             <div id="home-welcome">Welcome back<span id="home-welcome-name"></span>!</div>
@@ -324,6 +325,16 @@
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-home-favs" checked />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top:10px;">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Pinned: Free Placement</span>
+            <span class="settings-row-hint">Drag pinned cards anywhere on the Home screen instead of keeping them in a row</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-home-pinned-free" />
             <span class="toggle-track"></span>
           </label>
         </div>

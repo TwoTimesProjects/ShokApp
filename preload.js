@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Window controls
@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('api', {
   // Program scanner
   scanInstalledPrograms: (folderPath) => ipcRenderer.invoke('scan-installed-programs', folderPath),
   createShortcutsInFolder: (programs, destFolder) => ipcRenderer.invoke('create-shortcuts-in-folder', { programs, destFolder }),
+
+  // Drag-and-drop shortcuts
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  addDroppedShortcuts: (paths, destFolder) => ipcRenderer.invoke('add-dropped-shortcuts', { paths, destFolder }),
 
   // Auto-updater
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, version) => cb(version)),

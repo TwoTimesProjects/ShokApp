@@ -156,6 +156,10 @@ const els = {
   webShortcutName:     $('web-shortcut-name'),
   webShortcutUrl:      $('web-shortcut-url'),
   webShortcutError:    $('web-shortcut-error'),
+  shortcutOptionsMenu: $('shortcut-options-menu'),
+  modalDragDrop:       $('modal-drag-drop'),
+  dragDropZone:        $('drag-drop-zone'),
+  dragDropStatus:      $('drag-drop-status'),
 };
 
 const toastEl = document.createElement('div');
@@ -425,11 +429,25 @@ function setupEventListeners() {
   els.btnOpenFolder.addEventListener('click', () => { if (state.folderPath) window.api.openFolder(state.folderPath); });
   els.btnChangeFolder.addEventListener('click', changeFolder);
   els.btnRescan.addEventListener('click', () => { if (state.folderPath) scanFolder(true); });
+  $('btn-shortcut-options').addEventListener('click', e => {
+    e.stopPropagation();
+    els.shortcutOptionsMenu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => els.shortcutOptionsMenu.classList.add('hidden'));
   $('btn-find-programs').addEventListener('click', () => {
     if (!window.isPro) { showProGate('Find Programs'); return; }
     openProgramScanner();
   });
   $('btn-web-shortcut').addEventListener('click', openWebShortcutModal);
+  $('btn-drag-drop').addEventListener('click', openDragDropModal);
+  $('btn-cancel-drag-drop').addEventListener('click', closeModals);
+  els.dragDropZone.addEventListener('dragenter', e => { e.preventDefault(); els.dragDropZone.classList.add('drag-over'); });
+  els.dragDropZone.addEventListener('dragover',  e => { e.preventDefault(); });
+  els.dragDropZone.addEventListener('dragleave', () => els.dragDropZone.classList.remove('drag-over'));
+  els.dragDropZone.addEventListener('drop', handleShortcutDrop);
+  // Prevent Electron from navigating to a file dropped outside the drop zone.
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => e.preventDefault());
   $('btn-cancel-web-shortcut').addEventListener('click', closeModals);
   $('btn-confirm-web-shortcut').addEventListener('click', confirmWebShortcut);
   els.webShortcutUrl.addEventListener('keydown', e => { if (e.key === 'Enter') confirmWebShortcut(); });
@@ -1983,6 +2001,39 @@ async function confirmWebShortcut() {
   }
 }
 
+// ===== Drag and Drop Shortcuts =====
+function openDragDropModal() {
+  if (!window.isPro) { showProGate('Drag and Drop'); return; }
+  if (!state.folderPath) { toast('Select a folder first'); return; }
+  els.dragDropStatus.textContent = '';
+  showModal(els.modalDragDrop);
+}
+
+async function handleShortcutDrop(e) {
+  e.preventDefault();
+  els.dragDropZone.classList.remove('drag-over');
+
+  const files = [...e.dataTransfer.files];
+  if (files.length === 0) return;
+
+  els.dragDropStatus.textContent = 'Adding…';
+
+  const paths = files.map(f => window.api.getPathForFile(f)).filter(Boolean);
+  try {
+    const result = await window.api.addDroppedShortcuts(paths, state.folderPath);
+    const n = result.created.length;
+    if (n > 0) {
+      await scanFolder(false);
+      toast(`Added ${n} shortcut${n !== 1 ? 's' : ''} to launcher`);
+    }
+    els.dragDropStatus.textContent = result.errors.length
+      ? `Skipped: ${result.errors.join(', ')}`
+      : (n > 0 ? `Added ${n} shortcut${n !== 1 ? 's' : ''}.` : 'Nothing to add.');
+  } catch {
+    els.dragDropStatus.textContent = 'Failed to add shortcuts.';
+  }
+}
+
 // ===== Home View =====
 let homeClockInterval = null;
 
@@ -2164,12 +2215,41 @@ function renderHomePinned() {
   if (state.homeLayout.pinnedFreeMode) {
     section.classList.add('hidden');
     freeContainer.innerHTML = '';
+
+    const cRect    = freeContainer.getBoundingClientRect();
+    const PAD      = 16;
+    const STEP_X   = 166; // default card width (150) + gap
+    const STEP_Y   = 216; // default card height (150 * 4/3 aspect) + gap
+    const cols     = Math.max(1, Math.floor((cRect.width - PAD) / STEP_X));
+
     pinned.forEach((sc, idx) => {
-      const card  = buildHomeCard(sc);
-      const pos   = state.pinnedPositions[sc.id] || { xPct: 4 + idx * 5, yPct: 8 + idx * 5 };
-      card.style.left  = `${pos.xPct}%`;
-      card.style.top   = `${pos.yPct}%`;
-      card.style.width = `${pos.width || 150}px`;
+      const card = buildHomeCard(sc);
+      const defaultPos = {
+        x: PAD + (idx % cols) * STEP_X,
+        y: PAD + Math.floor(idx / cols) * STEP_Y,
+      };
+
+      let pos = state.pinnedPositions[sc.id];
+      if (pos && (pos.xPct !== undefined || pos.yPct !== undefined)) {
+        // Migrate legacy percentage-based positions to fixed pixels.
+        pos = {
+          width: pos.width,
+          x: (pos.xPct / 100) * cRect.width,
+          y: (pos.yPct / 100) * cRect.height,
+        };
+      }
+      pos = pos || defaultPos;
+
+      const width  = pos.width || 150;
+      const height = width * (4 / 3);
+      const maxX   = Math.max(0, cRect.width  - width);
+      const maxY   = Math.max(0, cRect.height - height);
+      const x      = Math.min(Math.max(0, pos.x ?? defaultPos.x), maxX);
+      const y      = Math.min(Math.max(0, pos.y ?? defaultPos.y), maxY);
+
+      card.style.left  = `${x}px`;
+      card.style.top   = `${y}px`;
+      card.style.width = `${width}px`;
 
       const handle = document.createElement('div');
       handle.className = 'pinned-resize-handle';
@@ -2195,11 +2275,10 @@ function makePinnedCardDraggable(cardEl, sc) {
     e.preventDefault();
 
     const container = $('home-pinned-free');
-    const cRect     = container.getBoundingClientRect();
     const startX    = e.clientX;
     const startY    = e.clientY;
-    const origLeft  = parseFloat(cardEl.style.left)  / 100 * cRect.width;
-    const origTop   = parseFloat(cardEl.style.top)   / 100 * cRect.height;
+    const origLeft  = parseFloat(cardEl.style.left) || 0;
+    const origTop   = parseFloat(cardEl.style.top)  || 0;
     let   dragging  = false;
 
     function onMove(e2) {
@@ -2214,8 +2293,8 @@ function makePinnedCardDraggable(cardEl, sc) {
       const r    = container.getBoundingClientRect();
       const newL = Math.max(0, Math.min(origLeft + dx, r.width  - cardEl.offsetWidth));
       const newT = Math.max(0, Math.min(origTop  + dy, r.height - cardEl.offsetHeight));
-      cardEl.style.left = `${(newL / r.width)  * 100}%`;
-      cardEl.style.top  = `${(newT / r.height) * 100}%`;
+      cardEl.style.left = `${newL}px`;
+      cardEl.style.top  = `${newT}px`;
     }
 
     function onUp() {
@@ -2227,9 +2306,11 @@ function makePinnedCardDraggable(cardEl, sc) {
         cardEl.addEventListener('click', e => e.stopImmediatePropagation(), { once: true, capture: true });
         state.pinnedPositions[sc.id] = {
           ...(state.pinnedPositions[sc.id] || {}),
-          xPct: parseFloat(cardEl.style.left),
-          yPct: parseFloat(cardEl.style.top),
+          x: parseFloat(cardEl.style.left),
+          y: parseFloat(cardEl.style.top),
         };
+        delete state.pinnedPositions[sc.id].xPct;
+        delete state.pinnedPositions[sc.id].yPct;
         window.api.storeSet('pinnedPositions', state.pinnedPositions);
       }
     }

@@ -55,8 +55,14 @@
           <button class="sidebar-btn" id="btn-open-folder">&#128194; Open Folder</button>
           <button class="sidebar-btn" id="btn-change-folder">&#128230; Change</button>
           <button class="sidebar-btn" id="btn-rescan">&#8635; Rescan</button>
-          <button class="sidebar-btn" id="btn-find-programs">&#128269; Find Programs</button>
-          <button class="sidebar-btn" id="btn-web-shortcut">&#127760; Web Shortcut</button>
+          <div id="shortcut-options-wrap">
+            <button class="sidebar-btn" id="btn-shortcut-options">&#10133; Shortcut Options &#9662;</button>
+            <div id="shortcut-options-menu" class="hidden">
+              <button id="btn-find-programs">&#128269; Find Programs</button>
+              <button id="btn-web-shortcut">&#127760; Web Shortcut</button>
+              <button id="btn-drag-drop">&#128229; Drag and Drop</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -435,6 +441,22 @@
       <div class="modal-actions">
         <button class="btn-secondary" id="btn-cancel-web-shortcut">Cancel</button>
         <button class="btn-primary" id="btn-confirm-web-shortcut">&#10133; Add Shortcut</button>
+      </div>
+    </div>
+
+    <!-- Drag and Drop Modal -->
+    <div id="modal-drag-drop" class="modal hidden">
+      <h3>&#128229; Drag and Drop Shortcuts</h3>
+      <p style="font-size:0.85rem;color:var(--text-dim);margin:0 0 10px;">
+        Drag shortcuts, programs, or files from your desktop and drop them below to add them to your library.
+      </p>
+      <div id="drag-drop-zone">
+        <div id="drag-drop-icon">&#128229;</div>
+        <div id="drag-drop-text">Drop files here</div>
+      </div>
+      <div id="drag-drop-status" style="font-size:0.82rem;color:var(--text-dim);margin-top:10px;min-height:1.1em;"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-cancel-drag-drop">Close</button>
       </div>
     </div>
 

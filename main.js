@@ -6,6 +6,7 @@ const os = require('os');
 const https = require('https');
 const { execSync, exec } = require('child_process');
 const DiscordRPC = require('discord-rpc');
+const wshortcut = require('windows-shortcuts');
 
 // ===== Discord Rich Presence =====
 const DISCORD_CLIENT_ID = '1519435174729875537';
@@ -693,6 +694,45 @@ ipcMain.handle('create-shortcuts-in-folder', async (event, { programs, destFolde
       }
     } catch {
       errors.push(prog.name);
+    }
+  }
+  return { created, errors };
+});
+
+// Drag-and-drop — files dropped from the desktop/Explorer.
+// .lnk/.url files are copied as-is; anything else gets a new .lnk pointing at it.
+ipcMain.handle('add-dropped-shortcuts', async (event, { paths, destFolder }) => {
+  if (!destFolder || !fs.existsSync(destFolder)) return { created: [], errors: [] };
+
+  const existingNames = new Set();
+  try {
+    for (const f of fs.readdirSync(destFolder)) {
+      existingNames.add(path.basename(f, path.extname(f)).toLowerCase());
+    }
+  } catch {}
+
+  const created = [], errors = [];
+  for (const srcPath of paths || []) {
+    const baseName = srcPath ? path.basename(srcPath, path.extname(srcPath)) : 'unknown';
+    try {
+      if (!srcPath || !fs.existsSync(srcPath)) { errors.push(baseName); continue; }
+      if (existingNames.has(baseName.toLowerCase())) { errors.push(baseName); continue; }
+
+      const lower = srcPath.toLowerCase();
+      if (fs.statSync(srcPath).isFile() && (lower.endsWith('.lnk') || lower.endsWith('.url'))) {
+        const dest = path.join(destFolder, path.basename(srcPath));
+        fs.copyFileSync(srcPath, dest);
+        created.push(path.basename(srcPath));
+      } else {
+        const dest = path.join(destFolder, `${baseName}.lnk`);
+        await new Promise((resolve, reject) => {
+          wshortcut.create(dest, { target: srcPath }, (err) => err ? reject(new Error(err)) : resolve());
+        });
+        created.push(`${baseName}.lnk`);
+      }
+      existingNames.add(baseName.toLowerCase());
+    } catch (e) {
+      errors.push(baseName);
     }
   }
   return { created, errors };

@@ -178,6 +178,17 @@ ipcMain.handle('pick-folder', async () => {
 // Open folder in Explorer
 ipcMain.handle('open-folder', (event, folderPath) => shell.openPath(folderPath));
 
+// Move a shortcut file (.lnk/.url) to the Recycle Bin
+ipcMain.handle('delete-shortcut-file', async (event, filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return { success: false, error: 'File not found' };
+  try {
+    await shell.trashItem(filePath);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // Scan folder — returns shortcuts immediately; icons fetched separately
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   if (!folderPath || !fs.existsSync(folderPath)) return [];

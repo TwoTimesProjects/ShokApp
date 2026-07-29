@@ -1,6 +1,6 @@
 {
   "name": "shok",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "Shok — organize, launch, and track your game library",
   "main": "main.js",
   "scripts": {

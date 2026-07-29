@@ -14,6 +14,7 @@ let state = {
   iconCache: {},
   favorites: new Set(),
   categories: {},
+  expandedCats: new Set(),
   recentlyPlayed: [],
   playCounts: {},
   firstPlayed: {},
@@ -95,6 +96,7 @@ const els = {
   contextMenu:         $('context-menu'),
   ctxRename:           $('ctx-rename'),
   ctxAddItems:         $('ctx-add-items'),
+  ctxAddSubcat:        $('ctx-add-subcat'),
   ctxDelete:           $('ctx-delete'),
   detailPanel:         $('detail-panel'),
   detailClose:         $('detail-close'),
@@ -147,6 +149,7 @@ const els = {
   toggleHomePinnedFree: $('toggle-home-pinned-free'),
   cardContextMenu:     $('card-context-menu'),
   ctxCardPin:          $('ctx-card-pin'),
+  ctxCardRemove:       $('ctx-card-remove'),
   steamApiKey:         $('steam-api-key'),
   steamIdVal:          $('steam-id-val'),
   steamSyncStatus:     $('steam-sync-status'),
@@ -365,8 +368,9 @@ async function loadPersistedState() {
   const cats = await window.api.storeGet('categories') || {};
   state.categories = {};
   for (const [id, cat] of Object.entries(cats)) {
-    state.categories[id] = { name: cat.name, items: new Set(cat.items || []) };
+    state.categories[id] = { name: cat.name, items: new Set(cat.items || []), parentId: cat.parentId || null };
   }
+  state.expandedCats = new Set(await window.api.storeGet('expandedCats') || []);
 
   const savedTheme = await window.api.storeGet('theme');
   if (savedTheme) applyThemeVars(savedTheme);
@@ -410,9 +414,10 @@ async function saveState() {
   await window.api.storeSet('sessionTime', state.sessionTime);
   const catsPlain = {};
   for (const [id, cat] of Object.entries(state.categories)) {
-    catsPlain[id] = { name: cat.name, items: [...cat.items] };
+    catsPlain[id] = { name: cat.name, items: [...cat.items], parentId: cat.parentId || null };
   }
   await window.api.storeSet('categories', catsPlain);
+  await window.api.storeSet('expandedCats', [...state.expandedCats]);
 }
 
 // ===== Event Listeners =====
@@ -488,7 +493,7 @@ function setupEventListeners() {
   els.searchInput.addEventListener('input', e => { state.searchQuery = e.target.value.toLowerCase(); renderView(); });
   els.searchClear.addEventListener('click', () => { els.searchInput.value = ''; state.searchQuery = ''; renderView(); });
 
-  $('btn-add-category').addEventListener('click', openAddCategoryModal);
+  $('btn-add-category').addEventListener('click', () => openAddCategoryModal());
   els.btnCancelCategory.addEventListener('click', closeModals);
   els.btnConfirmCategory.addEventListener('click', confirmAddCategory);
   els.categoryNameInput.addEventListener('keydown', e => { if (e.key==='Enter') confirmAddCategory(); });
@@ -542,6 +547,10 @@ function setupEventListeners() {
     if (state.contextCardId) togglePinned(state.contextCardId);
     closeCardContextMenu();
   });
+  els.ctxCardRemove.addEventListener('click', () => {
+    if (state.contextCardId) removeShortcut(state.contextCardId);
+    closeCardContextMenu();
+  });
   document.addEventListener('click', () => closeCardContextMenu());
   els.btnCloseSettings.addEventListener('click', closeSettingsModal);
   els.btnSteamSync.addEventListener('click', () => {
@@ -558,6 +567,7 @@ function setupEventListeners() {
 
   els.ctxRename.addEventListener('click', () => { closeContextMenu(); if (state.contextCatId) openRenameCategoryModal(state.contextCatId); });
   els.ctxAddItems.addEventListener('click', () => { closeContextMenu(); if (state.contextCatId) openAddItemsModal(state.contextCatId); });
+  els.ctxAddSubcat.addEventListener('click', () => { closeContextMenu(); if (state.contextCatId) openAddCategoryModal(state.contextCatId); });
   els.ctxDelete.addEventListener('click', () => { closeContextMenu(); if (state.contextCatId) deleteCategory(state.contextCatId); });
 
   document.addEventListener('click', () => closeContextMenu());
@@ -642,23 +652,62 @@ async function scanFolder(showToast = false) {
 }
 
 // ===== Sidebar =====
+function makeCategoryNavItem(id, cat, { isSub = false, hasKids = false, expanded = false } = {}) {
+  const btn = document.createElement('button');
+  btn.className = `nav-item category-item${isSub ? ' subcategory-item' : ''}`;
+  btn.dataset.view = `cat-${id}`;
+  if (state.currentView === `cat-${id}`) btn.classList.add('active');
+  const expandBtn = hasKids
+    ? `<button class="cat-expand-btn" data-action="expand" data-id="${id}" title="${expanded ? 'Collapse' : 'Expand'}">${expanded ? '&#9660;' : '&#9654;'}</button>`
+    : (isSub ? '' : `<span class="cat-expand-spacer"></span>`);
+  btn.innerHTML = `
+    ${expandBtn}
+    <span class="nav-icon">${isSub ? '&#8226;' : '&#128193;'}</span>
+    <span>${escHtml(cat.name)}</span>
+    <span class="cat-actions">
+      <button class="cat-action-btn" data-action="menu" data-id="${id}" title="Options">&#8942;</button>
+    </span>`;
+  btn.addEventListener('click', e => {
+    if (e.target.dataset.action === 'menu' || e.target.dataset.action === 'expand') return;
+    setView(`cat-${id}`);
+  });
+  btn.querySelector('[data-action="menu"]').addEventListener('click', e => { e.stopPropagation(); openContextMenu(e, id); });
+  btn.addEventListener('contextmenu', e => { e.preventDefault(); openContextMenu(e, id); });
+  if (hasKids) {
+    btn.querySelector('[data-action="expand"]').addEventListener('click', e => {
+      e.stopPropagation();
+      state.expandedCats.has(id) ? state.expandedCats.delete(id) : state.expandedCats.add(id);
+      saveState(); renderSidebar();
+    });
+  }
+  return btn;
+}
+
 function renderSidebar() {
   els.categoriesList.innerHTML = '';
-  for (const [id, cat] of Object.entries(state.categories)) {
-    const btn = document.createElement('button');
-    btn.className = 'nav-item category-item';
-    btn.dataset.view = `cat-${id}`;
-    if (state.currentView === `cat-${id}`) btn.classList.add('active');
-    btn.innerHTML = `
-      <span class="nav-icon">&#128193;</span>
-      <span>${escHtml(cat.name)}</span>
-      <span class="cat-actions">
-        <button class="cat-action-btn" data-action="menu" data-id="${id}" title="Options">&#8942;</button>
-      </span>`;
-    btn.addEventListener('click', e => { if (e.target.dataset.action === 'menu') return; setView(`cat-${id}`); });
-    btn.querySelector('[data-action="menu"]').addEventListener('click', e => { e.stopPropagation(); openContextMenu(e, id); });
-    btn.addEventListener('contextmenu', e => { e.preventDefault(); openContextMenu(e, id); });
-    els.categoriesList.appendChild(btn);
+  const entries = Object.entries(state.categories);
+  const topLevel = entries.filter(([, c]) => !c.parentId);
+  const childrenOf = pid => entries.filter(([, c]) => c.parentId === pid);
+
+  for (const [id, cat] of topLevel) {
+    const kids     = childrenOf(id);
+    const hasKids  = kids.length > 0;
+    const expanded = state.expandedCats.has(id);
+
+    const group = document.createElement('div');
+    group.className = 'category-group';
+    group.appendChild(makeCategoryNavItem(id, cat, { hasKids, expanded }));
+
+    if (hasKids && expanded) {
+      const childList = document.createElement('div');
+      childList.className = 'subcategory-list';
+      for (const [cid, ccat] of kids) {
+        childList.appendChild(makeCategoryNavItem(cid, ccat, { isSub: true }));
+      }
+      group.appendChild(childList);
+    }
+
+    els.categoriesList.appendChild(group);
   }
   document.querySelectorAll('.nav-item[data-view]').forEach(n => {
     n.classList.toggle('active', n.dataset.view === state.currentView);
@@ -1447,18 +1496,23 @@ function handleProcessSnapshot(runningExes) {
 }
 
 // ===== Categories =====
-function openAddCategoryModal() {
+function openAddCategoryModal(parentId = null) {
   els.categoryNameInput.value = '';
+  els.btnConfirmCategory.dataset.parentId = parentId || '';
+  els.modalCategory.querySelector('h3').textContent = parentId ? 'New Subcategory' : 'New Category';
+  els.categoryNameInput.placeholder = parentId ? 'Subcategory name...' : 'Category name...';
   showModal(els.modalCategory);
   setTimeout(() => els.categoryNameInput.focus(), 50);
 }
 function confirmAddCategory() {
   const name = els.categoryNameInput.value.trim();
   if (!name) return;
+  const parentId = els.btnConfirmCategory.dataset.parentId || null;
   const id = Date.now().toString();
-  state.categories[id] = { name, items: new Set() };
+  state.categories[id] = { name, items: new Set(), parentId };
+  if (parentId) state.expandedCats.add(parentId);
   saveState(); renderSidebar(); closeModals();
-  toast(`Category "${name}" created`);
+  toast(`${parentId ? 'Subcategory' : 'Category'} "${name}" created`);
 }
 function openRenameCategoryModal(catId) {
   const cat = state.categories[catId];
@@ -1478,17 +1532,28 @@ function confirmRenameCategory() {
 }
 function deleteCategory(catId) {
   if (!state.categories[catId]) return;
+  const childIds = Object.entries(state.categories)
+    .filter(([, c]) => c.parentId === catId)
+    .map(([id]) => id);
+  for (const cid of childIds) {
+    delete state.categories[cid];
+    if (state.currentView === `cat-${cid}`) setView('all');
+  }
   delete state.categories[catId];
+  state.expandedCats.delete(catId);
   if (state.currentView===`cat-${catId}`) setView('all');
   saveState(); renderSidebar(); renderView();
-  toast('Category deleted');
+  toast(childIds.length ? 'Category and its subcategories deleted' : 'Category deleted');
 }
 
 function openAddItemsModal(catId) {
   const cat = state.categories[catId];
   if (!cat) return;
   state.addToCatTargetId = catId;
-  els.addToCatName.textContent = `Category: ${cat.name}`;
+  const parentCat = cat.parentId ? state.categories[cat.parentId] : null;
+  els.addToCatName.textContent = parentCat
+    ? `Category: ${cat.name} (from ${parentCat.name})`
+    : `Category: ${cat.name}`;
   renderAddToCatList(catId);
   showModal(els.modalAddToCat);
 }
@@ -1505,7 +1570,13 @@ function openAddToCategoryModal(scId) {
 function renderAddToCatList(catId) {
   const cat = state.categories[catId];
   els.addToCatList.innerHTML = '';
-  for (const sc of getAllItems()) {
+  const parentCat = cat.parentId ? state.categories[cat.parentId] : null;
+  const sourceItems = parentCat ? getAllItems().filter(sc => parentCat.items.has(sc.id)) : getAllItems();
+  if (parentCat && sourceItems.length === 0) {
+    els.addToCatList.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px;text-align:center;">No items in "${escHtml(parentCat.name)}" yet — add some to the main category first.</div>`;
+    return;
+  }
+  for (const sc of sourceItems) {
     const inCat  = cat.items.has(sc.id);
     const imgSrc = state.customArt[sc.id] || state.iconCache[sc.id];
     const item   = document.createElement('div');
@@ -1525,11 +1596,16 @@ function renderAddToCatList(catId) {
 
 function renderAddToCatListForShortcut(scId) {
   els.addToCatList.innerHTML = '';
-  for (const [catId, cat] of Object.entries(state.categories)) {
+  const entries  = Object.entries(state.categories);
+  const ordered  = entries
+    .filter(([, c]) => !c.parentId)
+    .flatMap(([id, cat]) => [[id, cat], ...entries.filter(([, c]) => c.parentId === id)]);
+  for (const [catId, cat] of ordered) {
     const inCat = cat.items.has(scId);
     const item  = document.createElement('div');
     item.className = `add-cat-item${inCat?' checked':''}`;
-    item.innerHTML = `<div class="aci-icon">&#128193;</div><span>${escHtml(cat.name)}</span><div class="add-cat-check"></div>`;
+    const icon = cat.parentId ? '&#8226;' : '&#128193;';
+    item.innerHTML = `<div class="aci-icon${cat.parentId?' aci-sub':''}">${icon}</div><span>${escHtml(cat.name)}</span><div class="add-cat-check"></div>`;
     item.addEventListener('click', () => {
       cat.items.has(scId) ? cat.items.delete(scId) : cat.items.add(scId);
       item.classList.toggle('checked', cat.items.has(scId));
@@ -1768,6 +1844,8 @@ function resetTheme() {
 function openContextMenu(e, catId) {
   e.stopPropagation();
   state.contextCatId = catId;
+  const cat = state.categories[catId];
+  els.ctxAddSubcat.classList.toggle('hidden', !!(cat && cat.parentId));
   const menu = els.contextMenu;
   menu.classList.remove('hidden');
   menu.style.left = `${e.clientX}px`;
@@ -2111,7 +2189,7 @@ function renderHomeCats() {
   const container = $('home-cats');
   const section   = $('home-cats-section');
   if (!container) return;
-  const cats = Object.entries(state.categories);
+  const cats = Object.entries(state.categories).filter(([, c]) => !c.parentId);
   section.classList.toggle('hidden', cats.length === 0);
   container.innerHTML = '';
   for (const [id, cat] of cats) {
@@ -2357,6 +2435,8 @@ function openCardContextMenu(e, id) {
   state.contextCardId = id;
   const isPinned = state.pinnedItems.includes(id);
   els.ctxCardPin.textContent = isPinned ? 'Unpin from Home' : 'Pin to Home';
+  const sc = findItem(id);
+  els.ctxCardRemove.classList.toggle('hidden', !sc || !sc.path);
   const menu = els.cardContextMenu;
   menu.classList.remove('hidden');
   menu.style.left = `${e.clientX}px`;
@@ -2368,6 +2448,44 @@ function openCardContextMenu(e, id) {
   });
 }
 function closeCardContextMenu() { els.cardContextMenu.classList.add('hidden'); }
+
+async function removeShortcut(id) {
+  const sc = findItem(id);
+  if (!sc) return;
+  if (!sc.path) { toast("This item can't be removed here"); return; }
+
+  if (!confirm(`Remove "${sc.name}"? This deletes the shortcut file from your folder (recoverable from the Recycle Bin).`)) return;
+
+  const result = await window.api.deleteShortcutFile(sc.path);
+  if (!result.success) { toast(`Couldn't remove: ${result.error}`); return; }
+
+  state.shortcuts = state.shortcuts.filter(s => s.id !== id);
+  state.favorites.delete(id);
+  state.hiddenItems.delete(id);
+  delete state.customArt[id];
+  delete state.notes[id];
+  delete state.playCounts[id];
+  delete state.firstPlayed[id];
+  delete state.lastPlayedTime[id];
+  delete state.sessionTime[id];
+  delete state.steamAppIds[id];
+  delete state.pinnedPositions[id];
+  const pinIdx = state.pinnedItems.indexOf(id);
+  if (pinIdx >= 0) state.pinnedItems.splice(pinIdx, 1);
+  for (const cat of Object.values(state.categories)) cat.items.delete(id);
+
+  if (state.selectedId === id) closeDetailPanel();
+
+  await saveState();
+  await window.api.storeSet('customArt', state.customArt);
+  await window.api.storeSet('notes', state.notes);
+  await window.api.storeSet('pinnedItems', state.pinnedItems);
+  await window.api.storeSet('pinnedPositions', state.pinnedPositions);
+
+  renderSidebar();
+  renderView();
+  toast('Shortcut removed');
+}
 
 // ===== Start =====
 init();

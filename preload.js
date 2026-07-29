@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   pickImage: () => ipcRenderer.invoke('pick-image'),
   launchShortcut: (p) => ipcRenderer.invoke('launch-shortcut', p),
   createWebShortcut: (opts) => ipcRenderer.invoke('create-web-shortcut', opts),
+  deleteShortcutFile: (p) => ipcRenderer.invoke('delete-shortcut-file', p),
 
   // Persistent store
   storeGet: (key) => ipcRenderer.invoke('store-get', key),

@@ -290,6 +290,32 @@ body {
 }
 .cat-action-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
 
+.category-group { display: flex; flex-direction: column; }
+.cat-expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 9px;
+  padding: 0;
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cat-expand-btn:hover { color: var(--text-primary); }
+.cat-expand-spacer { width: 14px; flex-shrink: 0; }
+.subcategory-list {
+  display: flex;
+  flex-direction: column;
+  margin-left: 20px;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  padding-left: 4px;
+}
+.nav-item.subcategory-item { font-size: 12px; padding-left: 8px; }
+.nav-item.subcategory-item .nav-icon { font-size: 8px; }
+
 /* Sidebar bottom */
 #sidebar-bottom {
   padding: 10px 12px;
@@ -704,6 +730,7 @@ body {
   flex-shrink: 0;
 }
 .aci-icon { font-size: 20px; display: flex; align-items: center; justify-content: center; }
+.aci-icon.aci-sub { font-size: 14px; margin-left: 16px; }
 .add-cat-item span { font-size: 13px; color: var(--text-primary); flex: 1; }
 .add-cat-check {
   width: 18px;
@@ -886,6 +913,7 @@ body {
   transition: background 0.12s, color 0.12s;
 }
 #card-context-menu button:hover { background: rgba(255,255,255,0.07); color: var(--text-primary); }
+#ctx-card-remove:hover { color: var(--danger); }
 
 /* ===== Utilities ===== */
 .hidden { display: none !important; }
